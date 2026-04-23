@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ article_title }} | {{ blog_name }}{% endblock %}
+{% block content %}
+<article>
+  <h1>{{ article_title }}</h1>
+  <time>{{ article_created_at }}</time>
+  {% for block in content_blocks %}
+    {% if block.kind == "text" %}
+      <div class="text-block">{{ block.html | safe }}</div>
+    {% elif block.kind == "image" %}
+      <figure>
+        <img
+          src="/media/{{ block.file_id }}-medium.webp"
+          alt="{{ block.description }}"
+          loading="lazy"
+        >
+        {% if block.description %}
+          <figcaption>{{ block.description }}</figcaption>
+        {% endif %}
+      </figure>
+    {% elif block.kind == "gpx" %}
+      <div class="gpx-map"
+        data-gpx-url="/media/{{ block.file_id }}.gpx"
+        data-polyline="{{ block.polyline }}"
+        data-pins="{{ block.pins_json }}"
+        data-bbox="{{ block.bbox_json }}">
+      </div>
+    {% endif %}
+  {% endfor %}
+</article>
+{% endblock %}

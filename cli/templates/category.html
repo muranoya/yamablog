@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ category_name }} | {{ blog_name }}{% endblock %}
+{% block content %}
+<h2>{{ category_name }}</h2>
+<ul class="article-list">
+{% for article in articles %}
+  <li>
+    <a href="/articles/{{ article.id }}/">{{ article.title }}</a>
+    <time>{{ article.created_at }}</time>
+  </li>
+{% endfor %}
+</ul>
+<nav class="pagination">
+  {% if page_number > 1 %}
+    {% if page_number == 2 %}
+      <a href="/categories/{{ category_id }}/">前のページ</a>
+    {% else %}
+      <a href="/categories/{{ category_id }}/{{ page_number - 1 }}/">前のページ</a>
+    {% endif %}
+  {% endif %}
+  {% if page_number < total_pages %}
+    <a href="/categories/{{ category_id }}/{{ page_number + 1 }}/">次のページ</a>
+  {% endif %}
+</nav>
+{% endblock %}

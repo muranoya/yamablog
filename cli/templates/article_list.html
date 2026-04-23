@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}記事一覧{% if page_number > 1 %} - {{ page_number }}ページ目{% endif %} | {{ blog_name }}{% endblock %}
+{% block content %}
+<h2>記事一覧{% if page_number > 1 %} ({{ page_number }}ページ目){% endif %}</h2>
+<ul class="article-list">
+{% for article in articles %}
+  <li>
+    <a href="/articles/{{ article.id }}/">{{ article.title }}</a>
+    <time>{{ article.created_at }}</time>
+  </li>
+{% endfor %}
+</ul>
+<nav class="pagination">
+  {% if page_number > 1 %}
+    <a href="{% if page_number == 2 %}/{% else %}/{{ page_number - 1 }}/{% endif %}">前のページ</a>
+  {% endif %}
+  {% if page_number < total_pages %}
+    <a href="/{{ page_number + 1 }}/">次のページ</a>
+  {% endif %}
+</nav>
+{% endblock %}

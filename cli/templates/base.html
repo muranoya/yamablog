@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ blog_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/assets/bundle.css">
+</head>
+<body>
+  <header>
+    <h1><a href="/">{{ blog_name }}</a></h1>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <aside id="sidebar">
+    {% for panel in sidebar_panels %}
+      {% if panel.visible %}
+        {% if panel.kind == "gpx_map" %}
+          <div id="gpx-map" data-map-data-url="/map-data.json"></div>
+        {% elif panel.kind == "categories" %}
+          <section class="sidebar-categories">
+            <h2>カテゴリ</h2>
+            <ul>
+            {% for cat in categories %}
+              <li><a href="/categories/{{ cat.id }}/">{{ cat.name }}</a></li>
+            {% endfor %}
+            </ul>
+          </section>
+        {% elif panel.kind == "monthly" %}
+          <section class="sidebar-monthly">
+            <h2>月別</h2>
+            <ul>
+            {% for m in monthly_counts %}
+              <li><a href="/archives/{{ m.year }}/{{ m.month | as_str }}/"> {{ m.year }}年{{ m.month }}月 ({{ m.count }})</a></li>
+            {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  </aside>
+  <script src="/assets/bundle.js"></script>
+</body>
+</html>

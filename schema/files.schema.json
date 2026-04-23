@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DirectoryFiles",
+  "type": "array",
+  "items": {
+    "oneOf": [
+      {
+        "type": "object",
+        "required": ["id", "kind", "name", "sizes", "event_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "const": "image" },
+          "name": { "type": "string" },
+          "sizes": {
+            "type": "object",
+            "required": ["small", "medium", "original"],
+            "properties": {
+              "small":    { "$ref": "#/definitions/ImageSize" },
+              "medium":   { "$ref": "#/definitions/ImageSize" },
+              "original": { "$ref": "#/definitions/ImageSize" }
+            }
+          },
+          "shooting_datetime": { "type": "string", "format": "date-time" },
+          "event_at": { "type": "string", "format": "date" }
+        }
+      },
+      {
+        "type": "object",
+        "required": ["id", "kind", "name", "event_at", "stats"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "const": "gpx" },
+          "name": { "type": "string" },
+          "event_at": { "type": "string", "format": "date" },
+          "stats": {
+            "type": "object",
+            "required": ["distance_m", "cum_climb_m", "cum_down_m", "max_elevation_m", "min_elevation_m"],
+            "properties": {
+              "start_at": { "type": "string", "format": "date-time" },
+              "end_at":   { "type": "string", "format": "date-time" },
+              "distance_m":      { "type": "number" },
+              "cum_climb_m":     { "type": "number" },
+              "cum_down_m":      { "type": "number" },
+              "max_elevation_m": { "type": "number" },
+              "min_elevation_m": { "type": "number" }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "definitions": {
+    "ImageSize": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width":  { "type": "integer" },
+        "height": { "type": "integer" }
+      }
+    }
+  }
+}
