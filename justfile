@@ -33,15 +33,25 @@ cli-test:
 editor-dev:
     cd editor && pnpm run dev
 
-# dry-run でHTMLをローカル出力
+# JSONからHTMLを生成してローカルに出力
 convert:
-    cd cli && cargo run -- build --dry-run --data-dir ../data --output-dir /tmp/yamablog-preview
+    cd cli && cargo run -- build --data-dir ../data --output-dir /tmp/yamablog-preview
 
 # convert 後にnginxで配信してブラウザ確認（Ctrl+Cで停止）
 preview: convert
     @echo "Preview: http://localhost:8080"
     docker run --rm -p 8080:80 -v /tmp/yamablog-preview:/usr/share/nginx/html:ro nginx:alpine
 
-# CLIを実行してS3互換ストレージにデプロイ
+# HTMLを生成してS3互換ストレージにデプロイ
+# 必要な環境変数: R2_ENDPOINT_URL, R2_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 deploy:
-    cd cli && cargo run --release -- build --data-dir ../data
+    cd cli && cargo run --release -- build --data-dir ../data --output-dir /tmp/yamablog-dist
+    aws s3 sync /tmp/yamablog-dist s3://$R2_BUCKET \
+        --endpoint-url $R2_ENDPOINT_URL \
+        --delete \
+        --exclude "assets/*" \
+        --cache-control "no-cache"
+    aws s3 sync /tmp/yamablog-dist s3://$R2_BUCKET \
+        --endpoint-url $R2_ENDPOINT_URL \
+        --exclude "*" --include "assets/*" \
+        --cache-control "max-age=31536000, immutable"

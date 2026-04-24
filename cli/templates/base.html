@@ -32,7 +32,7 @@
             <h2>月別</h2>
             <ul>
             {% for m in monthly_counts %}
-              <li><a href="/archives/{{ m.year }}/{{ m.month | as_str }}/"> {{ m.year }}年{{ m.month }}月 ({{ m.count }})</a></li>
+              <li><a href="/archives/{{ m.month }}/"> {{ m.month }}月 ({{ m.count }})</a></li>
             {% endfor %}
             </ul>
           </section>

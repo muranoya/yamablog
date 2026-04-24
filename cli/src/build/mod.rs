@@ -15,6 +15,7 @@ use crate::data::load_blog_data;
 use crate::schema::article::ArticleContentItem;
 use crate::schema::files::{DirectoryFiles, DirectoryFilesItem};
 use crate::schema::manifest::{ManifestArticlesItem, ManifestArticlesItemStatus};
+use std::fs;
 
 struct BlogBundle {
     js_path: String,
@@ -55,20 +56,12 @@ pub async fn run(
     data_dir: &Path,
     output_dir: &Path,
     blog_dist: &Path,
-    dry_run: bool,
-    r2_config: Option<crate::config::R2Config>,
 ) -> Result<()> {
     println!("Loading data from {}...", data_dir.display());
     let blog = load_blog_data(data_dir)?;
     let bundle = load_blog_bundle(blog_dist)?;
     let tera = html::create_tera()?;
     let gpx_date_map = build_gpx_date_map(&blog.files);
-
-    let uploader = if let Some(cfg) = &r2_config {
-        Some(crate::upload::R2Uploader::new(cfg).await?)
-    } else {
-        None
-    };
 
     // Filter to published articles, sort by created_at descending
     let mut published: Vec<&ManifestArticlesItem> = blog
@@ -118,7 +111,7 @@ pub async fn run(
         } else {
             format!("{}/index.html", page.page_number)
         };
-        write_or_upload(output_dir, &key, html_str, dry_run, uploader.as_ref()).await?;
+        write_file(output_dir, &key, &html_str)?;
         println!("  Generated: {key}");
     }
 
@@ -136,7 +129,7 @@ pub async fn run(
             ctx.insert("content_blocks", &content_blocks);
             let html_str = html::render(&tera, "article.html", &ctx)?;
             let key = format!("articles/{}/index.html", article_summary.id.as_str());
-            write_or_upload(output_dir, &key, html_str, dry_run, uploader.as_ref()).await?;
+            write_file(output_dir, &key, &html_str)?;
             println!("  Generated: {key}");
         }
     }
@@ -164,7 +157,7 @@ pub async fn run(
             } else {
                 format!("categories/{}/{}/index.html", cat.id.as_str(), page.page_number)
             };
-            write_or_upload(output_dir, &key, html_str, dry_run, uploader.as_ref()).await?;
+            write_file(output_dir, &key, &html_str)?;
             println!("  Generated: {key}");
         }
     }
@@ -176,24 +169,23 @@ pub async fn run(
             .filter(|a| {
                 a.gpx_file_id
                     .and_then(|id| gpx_date_map.get(&id))
-                    .map(|d| d.year() == m.year && d.month() == m.month)
+                    .map(|d| d.month() == m.month)
                     .unwrap_or(false)
             })
             .map(|a| article_summary_to_value(a))
             .collect();
 
         let mut ctx = build_ctx()?;
-        ctx.insert("year", &m.year);
-        ctx.insert("month", &format!("{:02}", m.month));
+        ctx.insert("month", &m.month);
         ctx.insert("articles", &month_articles);
         let html_str = html::render(&tera, "archive.html", &ctx)?;
-        let key = format!("archives/{}/{:02}/index.html", m.year, m.month);
-        write_or_upload(output_dir, &key, html_str, dry_run, uploader.as_ref()).await?;
+        let key = format!("archives/{}/index.html", m.month);
+        write_file(output_dir, &key, &html_str)?;
         println!("  Generated: {key}");
     }
 
-    write_or_upload(output_dir, &bundle.css_path, bundle.css_content.clone(), dry_run, uploader.as_ref()).await?;
-    write_or_upload(output_dir, &bundle.js_path, bundle.js_content.clone(), dry_run, uploader.as_ref()).await?;
+    write_file(output_dir, &bundle.css_path, &bundle.css_content)?;
+    write_file(output_dir, &bundle.js_path, &bundle.js_content)?;
     println!("  Generated: {}", bundle.css_path);
     println!("  Generated: {}", bundle.js_path);
 
@@ -289,7 +281,6 @@ async fn build_content_blocks(
 
 #[derive(Serialize, Clone)]
 pub struct MonthCount {
-    pub year: i32,
     pub month: u32,
     pub count: usize,
 }
@@ -299,18 +290,18 @@ fn calc_monthly_counts(
     gpx_date_map: &HashMap<uuid::Uuid, NaiveDate>,
 ) -> Vec<MonthCount> {
     use std::collections::BTreeMap;
-    let mut map: BTreeMap<(i32, u32), usize> = BTreeMap::new();
+    let mut map: BTreeMap<u32, usize> = BTreeMap::new();
     for a in articles {
         if let Some(date) = a.gpx_file_id.and_then(|id| gpx_date_map.get(&id)) {
-            *map.entry((date.year(), date.month())).or_insert(0) += 1;
+            *map.entry(date.month()).or_insert(0) += 1;
         }
     }
-    // Most recent first
+    // January first
     let mut counts: Vec<MonthCount> = map
         .into_iter()
-        .map(|((year, month), count)| MonthCount { year, month, count })
+        .map(|(month, count)| MonthCount { month, count })
         .collect();
-    counts.sort_by(|a, b| b.year.cmp(&a.year).then(b.month.cmp(&a.month)));
+    counts.sort_by(|a, b| a.month.cmp(&b.month));
     counts
 }
 
@@ -350,24 +341,13 @@ fn format_timestamp(ts: i64) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Write output file (dry-run) or upload to R2 (not yet implemented)
+// Write output file to disk
 // ---------------------------------------------------------------------------
 
-async fn write_or_upload(
-    output_dir: &Path,
-    key: &str,
-    html: String,
-    dry_run: bool,
-    uploader: Option<&crate::upload::R2Uploader>,
-) -> Result<()> {
-    if dry_run {
-        let path = output_dir.join(key);
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(&path, html)?;
-    } else if let Some(up) = uploader {
-        up.upload_html(key, html).await?;
-        println!("  Uploaded: {key}");
-    }
+fn write_file(output_dir: &Path, key: &str, content: &str) -> Result<()> {
+    let path = output_dir.join(key);
+    fs::create_dir_all(path.parent().unwrap())?;
+    fs::write(&path, content)?;
     Ok(())
 }
 
@@ -404,9 +384,9 @@ mod tests {
             return;
         }
         let output_dir = std::env::temp_dir().join("yamablog-test-output");
-        run(&data_dir, &output_dir, &blog_dist, true, None)
+        run(&data_dir, &output_dir, &blog_dist)
             .await
-            .expect("dry-run build should succeed");
+            .expect("build should succeed");
 
         // Verify expected output files
         assert!(

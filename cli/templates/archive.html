@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ year }}年{{ month }}月 | {{ blog_name }}{% endblock %}
+{% block title %}{{ month }}月 | {{ blog_name }}{% endblock %}
 {% block content %}
-<h2>{{ year }}年{{ month }}月の記事</h2>
+<h2>{{ month }}月の記事</h2>
 <ul class="article-list">
 {% for article in articles %}
   <li>

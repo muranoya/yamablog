@@ -24,7 +24,9 @@ Usage:
 import argparse
 import json
 import re
+import shutil
 import sqlite3
+import sys
 import unicodedata
 import uuid
 from datetime import datetime, timezone
@@ -109,13 +111,97 @@ def convert_gpx_stats(raw: dict) -> dict:
     return result
 
 
+def convert_media_files(
+    conn: sqlite3.Connection,
+    file_id_map: dict,
+    user_files_base: Path,
+    media_out: Path,
+) -> None:
+    """user_files 内の画像・GPX を media/ に WebP 変換またはコピーする。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        sys.exit("エラー: Pillow が必要です。`pip install Pillow` でインストールしてください。")
+
+    media_out.mkdir(parents=True, exist_ok=True)
+    cur = conn.cursor()
+    cur.execute("SELECT id, kind, data FROM files")
+    rows = cur.fetchall()
+    total = len(rows)
+
+    images_ok = images_skip = gpx_ok = gpx_skip = 0
+
+    for i, row in enumerate(rows, 1):
+        print(f"\r  {i}/{total} 処理中...", end="", flush=True)
+
+        new_uuid_str = file_id_map.get(row["id"])
+        if not new_uuid_str:
+            continue
+
+        raw = json.loads(row["data"]) if row["data"] else {}
+
+        if row["kind"] == 0:  # image
+            size_map = {
+                "original": f"{new_uuid_str}-original.webp",
+                "large":    f"{new_uuid_str}-medium.webp",
+                "small":    f"{new_uuid_str}-small.webp",
+            }
+            for key, out_name in size_map.items():
+                s = raw.get(key, {})
+                rel = s.get("path") if isinstance(s, dict) else None
+                if not rel:
+                    continue
+                src = user_files_base / rel
+                dst = media_out / out_name
+                if not src.exists():
+                    images_skip += 1
+                    print(f"\n  警告: {src} が見つかりません", flush=True)
+                    continue
+                with Image.open(src) as img:
+                    img.save(dst, "webp", quality=85, method=6)
+                images_ok += 1
+
+        elif row["kind"] == 2:  # gpx
+            rel = raw.get("path")
+            if not rel:
+                continue
+            src = user_files_base / rel
+            dst = media_out / f"{new_uuid_str}.gpx"
+            if not src.exists():
+                gpx_skip += 1
+                print(f"\n  警告: {src} が見つかりません", flush=True)
+                continue
+            shutil.copy2(src, dst)
+            gpx_ok += 1
+
+    print()
+    skipped = images_skip + gpx_skip
+    print(
+        f"✓ media/   画像 {images_ok} WebP 変換 / GPX {gpx_ok} コピー"
+        + (f" / {skipped} 件スキップ（ファイル不在）" if skipped else "")
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="trail-behind-them SQLite → yamablog JSON 移行スクリプト"
     )
     parser.add_argument("--db", required=True, help="SQLiteファイルのパス")
     parser.add_argument("--output", required=True, help="出力先ディレクトリ（data/）")
+    parser.add_argument(
+        "--user-files",
+        metavar="PATH",
+        help="user_files ルートディレクトリ（メディア変換時に必要）",
+    )
+    parser.add_argument(
+        "--media-out",
+        metavar="PATH",
+        help="media 出力ディレクトリ（メディア変換時に必要）",
+    )
     args = parser.parse_args()
+
+    if bool(args.user_files) != bool(args.media_out):
+        sys.exit("エラー: --user-files と --media-out は両方同時に指定してください。")
 
     output = Path(args.output)
     (output / "articles").mkdir(parents=True, exist_ok=True)
@@ -351,6 +437,15 @@ def main():
 
     print(f"✓ data/articles/ ({article_count} 記事)")
 
+    if args.user_files and args.media_out:
+        print("\nメディアファイルを変換中...")
+        convert_media_files(
+            conn,
+            file_id_map,
+            Path(args.user_files),
+            Path(args.media_out),
+        )
+
     conn.close()
 
     print("\n移行完了。")
@@ -358,10 +453,11 @@ def main():
     print("  1. manifest.json の blog.name を実際のブログ名に変更する")
     print("  2. 日本語タイトルから生成された article-<番号> / category-<番号> ID を")
     print("     エディタで任意のスラグに変更する（URLに影響）")
-    print("  3. メディアファイル（画像・GPX）を R2 の新パス規則に従って再アップロードする")
-    print("     旧: user_files/<dir>/<filename>")
-    print("     新: media/<uuid>-small.webp / media/<uuid>-medium.webp / media/<uuid>-original.webp")
-    print("         media/<uuid>.gpx")
+    if not (args.user_files and args.media_out):
+        print("  3. メディアファイル（画像・GPX）を変換・アップロードする")
+        print("     --user-files と --media-out を指定して再実行すると自動変換できます")
+    else:
+        print("  3. media/ の WebP・GPX ファイルを R2 にアップロードする")
 
 
 if __name__ == "__main__":
