@@ -11,18 +11,16 @@ export interface ImageFile {
     medium: { width: number; height: number };
     original: { width: number; height: number };
   };
-  shooting_datetime?: string;
-  event_at: string;
+  shooting_datetime?: number;
 }
 
 export interface GpxFile {
   id: string;
   kind: "gpx";
   name: string;
-  event_at: string;
   stats: {
-    start_at?: string;
-    end_at?: string;
+    start_at?: number;
+    end_at?: number;
     distance_m: number;
     cum_climb_m: number;
     cum_down_m: number;

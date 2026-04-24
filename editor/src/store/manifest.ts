@@ -20,8 +20,7 @@ export interface ManifestData {
     category_ids: string[];
     thumbnail_file_id?: string;
     gpx_file_id?: string;
-    created_at: string;
-    updated_at: string;
+    created_at: number;
   }>;
   map_memos: Array<{
     id: string;
@@ -64,4 +63,74 @@ export function updateArticle(
     setStore("data", "articles", idx, update as any);
     markDirty("manifest.json");
   }
+}
+
+export function addCategory(name: string) {
+  const id = crypto.randomUUID();
+  const priority = store.data?.categories.length ?? 0;
+  setStore("data", "categories", (prev) => [...prev, { id, name, priority }]);
+  markDirty("manifest.json");
+}
+
+export function updateCategory(id: string, name: string) {
+  const idx = store.data?.categories.findIndex((c) => c.id === id) ?? -1;
+  if (idx >= 0) {
+    setStore("data", "categories", idx, "name", name);
+    markDirty("manifest.json");
+  }
+}
+
+export function deleteCategory(id: string) {
+  setStore("data", "categories", (prev) => prev.filter((c) => c.id !== id));
+  markDirty("manifest.json");
+}
+
+export function moveCategoryUp(id: string) {
+  const cats = store.data?.categories ?? [];
+  const sorted = [...cats].sort((a, b) => a.priority - b.priority);
+  const idx = sorted.findIndex((c) => c.id === id);
+  if (idx <= 0) return;
+  const newCats = cats.map((c) => {
+    if (c.id === sorted[idx].id) return { ...c, priority: sorted[idx - 1].priority };
+    if (c.id === sorted[idx - 1].id) return { ...c, priority: sorted[idx].priority };
+    return c;
+  });
+  setStore("data", "categories", newCats);
+  markDirty("manifest.json");
+}
+
+export function moveCategoryDown(id: string) {
+  const cats = store.data?.categories ?? [];
+  const sorted = [...cats].sort((a, b) => a.priority - b.priority);
+  const idx = sorted.findIndex((c) => c.id === id);
+  if (idx < 0 || idx >= sorted.length - 1) return;
+  const newCats = cats.map((c) => {
+    if (c.id === sorted[idx].id) return { ...c, priority: sorted[idx + 1].priority };
+    if (c.id === sorted[idx + 1].id) return { ...c, priority: sorted[idx].priority };
+    return c;
+  });
+  setStore("data", "categories", newCats);
+  markDirty("manifest.json");
+}
+
+export function addMapMemo(memo: Omit<ManifestData["map_memos"][number], "id">) {
+  const id = crypto.randomUUID();
+  setStore("data", "map_memos", (prev) => [...prev, { id, ...memo }]);
+  markDirty("manifest.json");
+}
+
+export function updateMapMemo(
+  id: string,
+  update: Partial<Omit<ManifestData["map_memos"][number], "id">>
+) {
+  const idx = store.data?.map_memos.findIndex((m) => m.id === id) ?? -1;
+  if (idx >= 0) {
+    setStore("data", "map_memos", idx, update as any);
+    markDirty("manifest.json");
+  }
+}
+
+export function deleteMapMemo(id: string) {
+  setStore("data", "map_memos", (prev) => prev.filter((m) => m.id !== id));
+  markDirty("manifest.json");
 }

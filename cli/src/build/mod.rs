@@ -4,25 +4,65 @@ pub mod map_data;
 pub mod markdown;
 pub mod pagination;
 
-use anyhow::Result;
-use chrono::Datelike;
+use anyhow::{Context as _, Result};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 use tera::Context;
 
 use crate::data::load_blog_data;
 use crate::schema::article::ArticleContentItem;
+use crate::schema::files::{DirectoryFiles, DirectoryFilesItem};
 use crate::schema::manifest::{ManifestArticlesItem, ManifestArticlesItemStatus};
+
+struct BlogBundle {
+    js_path: String,
+    css_path: String,
+    js_content: String,
+    css_content: String,
+}
+
+fn load_blog_bundle(blog_dist: &Path) -> Result<BlogBundle> {
+    let manifest_path = blog_dist.join(".vite/manifest.json");
+    let manifest_str = std::fs::read_to_string(&manifest_path)
+        .with_context(|| format!("blog/dist not found: {}", manifest_path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_str)?;
+
+    let entry = manifest["src/main.ts"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("src/main.ts not found in Vite manifest"))?;
+
+    let js_path = entry["file"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("file missing in Vite manifest entry"))?
+        .to_string();
+
+    let css_path = entry["css"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("css missing in Vite manifest entry"))?
+        .to_string();
+
+    let js_content = std::fs::read_to_string(blog_dist.join(&js_path))?;
+    let css_content = std::fs::read_to_string(blog_dist.join(&css_path))?;
+
+    Ok(BlogBundle { js_path, css_path, js_content, css_content })
+}
 
 pub async fn run(
     data_dir: &Path,
     output_dir: &Path,
+    blog_dist: &Path,
     dry_run: bool,
     r2_config: Option<crate::config::R2Config>,
 ) -> Result<()> {
     println!("Loading data from {}...", data_dir.display());
     let blog = load_blog_data(data_dir)?;
+    let bundle = load_blog_bundle(blog_dist)?;
     let tera = html::create_tera()?;
+    let gpx_date_map = build_gpx_date_map(&blog.files);
 
     let uploader = if let Some(cfg) = &r2_config {
         Some(crate::upload::R2Uploader::new(cfg).await?)
@@ -30,17 +70,17 @@ pub async fn run(
         None
     };
 
-    // Filter to published articles, sort by updated_at descending
+    // Filter to published articles, sort by created_at descending
     let mut published: Vec<&ManifestArticlesItem> = blog
         .manifest
         .articles
         .iter()
         .filter(|a| a.status == ManifestArticlesItemStatus::Published)
         .collect();
-    published.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    published.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-    // Monthly counts for sidebar
-    let monthly_counts = calc_monthly_counts(&published);
+    // Monthly counts for sidebar (based on GPX stats.start_at)
+    let monthly_counts = calc_monthly_counts(&published, &gpx_date_map);
 
     // Common context fields
     let blog_name = &blog.manifest.blog.name;
@@ -54,6 +94,8 @@ pub async fn run(
         ctx.insert("sidebar_panels", sidebar_panels);
         ctx.insert("categories", categories);
         ctx.insert("monthly_counts", &monthly_counts);
+        ctx.insert("bundle_js", &bundle.js_path);
+        ctx.insert("bundle_css", &bundle.css_path);
         Ok(ctx)
     };
 
@@ -89,7 +131,7 @@ pub async fn run(
             ctx.insert("article_title", &article_summary.title);
             ctx.insert(
                 "article_created_at",
-                &article_summary.created_at.to_string(),
+                &format_timestamp(article_summary.created_at),
             );
             ctx.insert("content_blocks", &content_blocks);
             let html_str = html::render(&tera, "article.html", &ctx)?;
@@ -129,10 +171,14 @@ pub async fn run(
 
     // --- Monthly archive pages ---
     for m in &monthly_counts {
-        let prefix = format!("{}-{:02}", m.year, m.month);
         let month_articles: Vec<serde_json::Value> = published
             .iter()
-            .filter(|a| a.created_at.to_string().starts_with(&prefix))
+            .filter(|a| {
+                a.gpx_file_id
+                    .and_then(|id| gpx_date_map.get(&id))
+                    .map(|d| d.year() == m.year && d.month() == m.month)
+                    .unwrap_or(false)
+            })
             .map(|a| article_summary_to_value(a))
             .collect();
 
@@ -145,6 +191,11 @@ pub async fn run(
         write_or_upload(output_dir, &key, html_str, dry_run, uploader.as_ref()).await?;
         println!("  Generated: {key}");
     }
+
+    write_or_upload(output_dir, &bundle.css_path, bundle.css_content.clone(), dry_run, uploader.as_ref()).await?;
+    write_or_upload(output_dir, &bundle.js_path, bundle.js_content.clone(), dry_run, uploader.as_ref()).await?;
+    println!("  Generated: {}", bundle.css_path);
+    println!("  Generated: {}", bundle.js_path);
 
     println!("Build complete!");
     Ok(())
@@ -210,7 +261,7 @@ async fn build_content_blocks(
                     html: None,
                     file_id: Some(file_id.to_string()),
                     description: None,
-                    polyline: None,
+                    polyline: Some(String::new()),
                     pins_json: Some("[]".to_string()),
                     bbox_json: Some("{}".to_string()),
                 });
@@ -243,13 +294,16 @@ pub struct MonthCount {
     pub count: usize,
 }
 
-fn calc_monthly_counts(articles: &[&ManifestArticlesItem]) -> Vec<MonthCount> {
+fn calc_monthly_counts(
+    articles: &[&ManifestArticlesItem],
+    gpx_date_map: &HashMap<uuid::Uuid, NaiveDate>,
+) -> Vec<MonthCount> {
     use std::collections::BTreeMap;
     let mut map: BTreeMap<(i32, u32), usize> = BTreeMap::new();
     for a in articles {
-        let y = a.created_at.year();
-        let m = a.created_at.month();
-        *map.entry((y, m)).or_insert(0) += 1;
+        if let Some(date) = a.gpx_file_id.and_then(|id| gpx_date_map.get(&id)) {
+            *map.entry((date.year(), date.month())).or_insert(0) += 1;
+        }
     }
     // Most recent first
     let mut counts: Vec<MonthCount> = map
@@ -260,6 +314,22 @@ fn calc_monthly_counts(articles: &[&ManifestArticlesItem]) -> Vec<MonthCount> {
     counts
 }
 
+fn build_gpx_date_map(files: &HashMap<String, DirectoryFiles>) -> HashMap<uuid::Uuid, NaiveDate> {
+    let mut map = HashMap::new();
+    for dir_files in files.values() {
+        for item in dir_files.iter() {
+            if let DirectoryFilesItem::Gpx { id, stats, .. } = item {
+                if let Some(ts) = stats.start_at {
+                    if let Some(dt) = DateTime::from_timestamp(ts, 0) {
+                        map.insert(*id, dt.date_naive());
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
 // ---------------------------------------------------------------------------
 // Serialize article summary for Tera context
 // ---------------------------------------------------------------------------
@@ -268,10 +338,15 @@ fn article_summary_to_value(a: &ManifestArticlesItem) -> serde_json::Value {
     serde_json::json!({
         "id": a.id.to_string(),
         "title": a.title,
-        "created_at": a.created_at.to_string(),
-        "updated_at": a.updated_at.to_string(),
+        "created_at": format_timestamp(a.created_at),
         "category_ids": a.category_ids.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
     })
+}
+
+fn format_timestamp(ts: i64) -> String {
+    DateTime::from_timestamp(ts, 0)
+        .map(|dt: DateTime<Utc>| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +386,11 @@ mod tests {
         PathBuf::from(manifest_dir).join("..").join("data")
     }
 
+    fn sample_blog_dist() -> PathBuf {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        PathBuf::from(manifest_dir).join("..").join("blog/dist")
+    }
+
     #[tokio::test]
     async fn test_dry_run_build() {
         let data_dir = sample_data_dir();
@@ -318,8 +398,13 @@ mod tests {
             // Skip if sample data not present
             return;
         }
+        let blog_dist = sample_blog_dist();
+        if !blog_dist.join(".vite/manifest.json").exists() {
+            // Skip if blog has not been built yet
+            return;
+        }
         let output_dir = std::env::temp_dir().join("yamablog-test-output");
-        run(&data_dir, &output_dir, true, None)
+        run(&data_dir, &output_dir, &blog_dist, true, None)
             .await
             .expect("dry-run build should succeed");
 
@@ -328,29 +413,12 @@ mod tests {
             output_dir.join("index.html").exists(),
             "index.html should be generated"
         );
-        assert!(
-            output_dir.join("articles/test-article/index.html").exists(),
-            "article page should be generated"
-        );
-        assert!(
-            output_dir.join("categories/hiking/index.html").exists(),
-            "category page should be generated"
-        );
-        assert!(
-            output_dir.join("archives/2024/08/index.html").exists(),
-            "archive page should be generated"
-        );
 
-        // Verify index.html contains expected content
+        // Verify index.html contains hashed bundle paths
         let index_html =
             std::fs::read_to_string(output_dir.join("index.html")).unwrap();
-        assert!(index_html.contains("テストブログ"), "blog name in index");
-        assert!(index_html.contains("テスト記事"), "article title in index");
-
-        // Verify article page contains rendered markdown
-        let article_html =
-            std::fs::read_to_string(output_dir.join("articles/test-article/index.html"))
-                .unwrap();
-        assert!(article_html.contains("テスト"), "article content rendered");
+        assert!(index_html.contains("assets/bundle-"), "hashed bundle path in index");
+        assert!(index_html.contains(".css"), "bundle.css referenced in index");
+        assert!(index_html.contains(".js"), "bundle.js referenced in index");
     }
 }

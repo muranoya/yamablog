@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}{{ blog_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="/assets/bundle.css">
+  <link rel="stylesheet" href="/{{ bundle_css | safe }}">
 </head>
 <body>
   <header>
@@ -40,6 +40,6 @@
       {% endif %}
     {% endfor %}
   </aside>
-  <script src="/assets/bundle.js"></script>
+  <script src="/{{ bundle_js | safe }}"></script>
 </body>
 </html>

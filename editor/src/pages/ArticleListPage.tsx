@@ -8,12 +8,12 @@ export default function ArticleListPage() {
   const published = () =>
     (getManifest()?.articles ?? [])
       .filter((a) => a.status === "published")
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      .sort((a, b) => b.created_at - a.created_at);
 
   const drafts = () =>
     (getManifest()?.articles ?? [])
       .filter((a) => a.status === "draft")
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      .sort((a, b) => b.created_at - a.created_at);
 
   return (
     <Show when={!editingId()} fallback={<ArticleEditPage id={editingId()!} onBack={() => setEditingId(null)} />}>
@@ -27,7 +27,9 @@ export default function ArticleListPage() {
                 <li class="flex items-center justify-between bg-white rounded-lg px-4 py-3 shadow-sm">
                   <span class="font-medium">{article.title}</span>
                   <div class="flex gap-2 items-center">
-                    <time class="text-sm text-gray-400">{article.updated_at}</time>
+                    <time class="text-sm text-gray-400">
+                      {new Date(article.created_at * 1000).toISOString().substring(0, 10)}
+                    </time>
                     <button
                       onClick={() => setEditingId(article.id)}
                       class="text-sm px-3 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"

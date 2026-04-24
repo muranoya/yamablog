@@ -25,6 +25,9 @@ enum Commands {
         output_dir: PathBuf,
 
         #[arg(long)]
+        blog_dist: Option<PathBuf>,
+
+        #[arg(long)]
         dry_run: bool,
     },
 }
@@ -33,13 +36,19 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Build { data_dir, output_dir, dry_run } => {
+        Commands::Build { data_dir, output_dir, blog_dist, dry_run } => {
+            let blog_dist = blog_dist.unwrap_or_else(|| {
+                data_dir
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .join("blog/dist")
+            });
             let r2_config = if !dry_run {
                 Some(config::R2Config::from_env()?)
             } else {
                 None
             };
-            build::run(&data_dir, &output_dir, dry_run, r2_config).await?;
+            build::run(&data_dir, &output_dir, &blog_dist, dry_run, r2_config).await?;
         }
     }
     Ok(())

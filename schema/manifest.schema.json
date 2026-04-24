@@ -57,7 +57,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "title", "status", "category_ids", "created_at", "updated_at"],
+        "required": ["id", "title", "status", "category_ids", "created_at"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
           "title": { "type": "string" },
@@ -65,8 +65,7 @@
           "category_ids": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9-]+$" } },
           "thumbnail_file_id": { "type": "string", "format": "uuid" },
           "gpx_file_id": { "type": "string", "format": "uuid" },
-          "created_at": { "type": "string", "format": "date" },
-          "updated_at": { "type": "string", "format": "date" }
+          "created_at": { "type": "integer" }
         }
       }
     },

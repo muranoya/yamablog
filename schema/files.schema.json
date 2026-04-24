@@ -6,7 +6,7 @@
     "oneOf": [
       {
         "type": "object",
-        "required": ["id", "kind", "name", "sizes", "event_at"],
+        "required": ["id", "kind", "name", "sizes"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "kind": { "type": "string", "const": "image" },
@@ -20,24 +20,22 @@
               "original": { "$ref": "#/definitions/ImageSize" }
             }
           },
-          "shooting_datetime": { "type": "string", "format": "date-time" },
-          "event_at": { "type": "string", "format": "date" }
+          "shooting_datetime": { "type": "integer" }
         }
       },
       {
         "type": "object",
-        "required": ["id", "kind", "name", "event_at", "stats"],
+        "required": ["id", "kind", "name", "stats"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "kind": { "type": "string", "const": "gpx" },
           "name": { "type": "string" },
-          "event_at": { "type": "string", "format": "date" },
           "stats": {
             "type": "object",
             "required": ["distance_m", "cum_climb_m", "cum_down_m", "max_elevation_m", "min_elevation_m"],
             "properties": {
-              "start_at": { "type": "string", "format": "date-time" },
-              "end_at":   { "type": "string", "format": "date-time" },
+              "start_at": { "type": "integer" },
+              "end_at":   { "type": "integer" },
               "distance_m":      { "type": "number" },
               "cum_climb_m":     { "type": "number" },
               "cum_down_m":      { "type": "number" },

@@ -18,7 +18,7 @@ Usage:
     エディタで後から変更可能。
   - 画像の "large" サイズは yamablog の "medium" にリネームされる。
   - R2上のメディアファイルのパスが変わるため、別途ファイルの移行・再アップロードが必要。
-  - shooting_datetime のタイムゾーン情報はSQLiteに存在しないため付与しない。
+  - shooting_datetime はUTCとして解釈しUnix timestampに変換する。
 """
 
 import argparse
@@ -27,11 +27,21 @@ import re
 import sqlite3
 import unicodedata
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 def new_uuid() -> str:
     return str(uuid.uuid4())
+
+
+def _to_unix_ts(dt_str) -> int | None:
+    """SQLiteの日時文字列をUTCとして解釈しUnix timestampに変換する。"""
+    if not dt_str:
+        return None
+    s = str(dt_str).strip()[:19]  # "YYYY-MM-DD HH:MM:SS" または "YYYY-MM-DD"
+    dt = datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
 
 
 def slugify(text: str) -> str:
@@ -72,23 +82,31 @@ def convert_sidebar(old_settings: str | None) -> dict:
         return default
 
 
-def convert_image_data(raw: dict) -> tuple[dict, str | None]:
-    """trail-behind-them の image data → (sizes dict, shooting_datetime)"""
+def convert_image_data(raw: dict) -> tuple[dict, int | None]:
+    """trail-behind-them の image data → (sizes dict, shooting_datetime as Unix timestamp)"""
     sizes = {}
     size_key_map = {"original": "original", "large": "medium", "small": "small"}
     for old_key, new_key in size_key_map.items():
         s = raw.get(old_key)
         if isinstance(s, dict):
             sizes[new_key] = {"width": s.get("width"), "height": s.get("height")}
-    shooting_datetime = raw.get("shooting_datetime")
+    # large サイズが存在しない場合は original で補完
+    if "original" in sizes and "medium" not in sizes:
+        sizes["medium"] = sizes["original"]
+    shooting_datetime = _to_unix_ts(raw.get("shooting_datetime"))
     return sizes, shooting_datetime
 
 
 def convert_gpx_stats(raw: dict) -> dict:
     """trail-behind-them の gpx data → yamablog の stats フィールド。"""
-    keys = ["start_at", "end_at", "distance_m", "cum_climb_m", "cum_down_m",
-            "max_elevation_m", "min_elevation_m"]
-    return {k: raw[k] for k in keys if k in raw}
+    result = {}
+    for k in ("start_at", "end_at"):
+        if k in raw:
+            result[k] = _to_unix_ts(raw[k])
+    for k in ("distance_m", "cum_climb_m", "cum_down_m", "max_elevation_m", "min_elevation_m"):
+        if k in raw:
+            result[k] = raw[k]
+    return result
 
 
 def main():
@@ -176,7 +194,7 @@ def main():
 
     # 記事サマリー
     cur.execute("""
-        SELECT id, title, status, thumbnail, gpx_file_id, created_at, updated_at
+        SELECT id, title, status, thumbnail, gpx_file_id, created_at
         FROM articles ORDER BY created_at DESC
     """)
     articles_meta = []
@@ -194,10 +212,9 @@ def main():
             "title": r["title"],
             "status": "published" if r["status"] == 1 else "draft",
             "category_ids": cat_ids,
-            "thumbnail": file_id_map.get(r["thumbnail"]) if r["thumbnail"] else None,
+            "thumbnail_file_id": file_id_map.get(r["thumbnail"]) if r["thumbnail"] else None,
             "gpx_file_id": file_id_map.get(r["gpx_file_id"]) if r["gpx_file_id"] else None,
-            "created_at": r["created_at"][:10] if r["created_at"] else None,
-            "updated_at": r["updated_at"][:10] if r["updated_at"] else None,
+            "created_at": _to_unix_ts(r["created_at"]),
         })
 
     # マップメモ
@@ -236,7 +253,7 @@ def main():
     # data/files/<dir-uuid>.json を生成
     # ────────────────────────────────────────────────
 
-    cur.execute("SELECT id, directory_id, name, kind, data, event_at FROM files")
+    cur.execute("SELECT id, directory_id, name, kind, data FROM files")
     files_by_dir: dict[str, list] = {}
     skipped = 0
     for r in cur.fetchall():
@@ -257,12 +274,8 @@ def main():
             entry["sizes"] = sizes
             if shooting_datetime:
                 entry["shooting_datetime"] = shooting_datetime
-            if r["event_at"]:
-                entry["event_at"] = str(r["event_at"])[:10]
 
         elif kind == "gpx":
-            if r["event_at"]:
-                entry["event_at"] = str(r["event_at"])[:10]
             stats = convert_gpx_stats(raw_data)
             if stats:
                 entry["stats"] = stats

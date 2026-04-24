@@ -1,7 +1,7 @@
 import type { JSX } from "solid-js";
 import ExportButton from "./ExportButton";
 
-type Page = "articles" | "files" | "settings";
+type Page = "articles" | "files" | "categories" | "map_memos" | "settings";
 
 interface Props {
   children: JSX.Element;
@@ -9,12 +9,20 @@ interface Props {
   currentPage: Page;
 }
 
+const navItems: Array<{ page: Page; label: string }> = [
+  { page: "articles", label: "記事" },
+  { page: "files", label: "ファイル" },
+  { page: "categories", label: "カテゴリ" },
+  { page: "map_memos", label: "マップメモ" },
+  { page: "settings", label: "設定" },
+];
+
 export default function Layout(props: Props) {
   return (
-    <div class="flex min-h-screen bg-gray-50">
-      <nav class="w-48 bg-white border-r border-gray-200 p-4 flex flex-col gap-1">
+    <div class="flex h-screen overflow-hidden bg-gray-50">
+      <nav class="w-48 bg-white border-r border-gray-200 p-4 flex flex-col gap-1 flex-shrink-0 h-screen overflow-y-auto">
         <h1 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">yamablog</h1>
-        {(["articles", "files", "settings"] as Page[]).map((page) => (
+        {navItems.map(({ page, label }) => (
           <button
             onClick={() => props.onNavigate(page)}
             class={`text-left px-3 py-2 rounded-lg text-sm transition ${
@@ -23,7 +31,7 @@ export default function Layout(props: Props) {
                 : "text-gray-700 hover:bg-gray-100"
             }`}
           >
-            {page === "articles" ? "記事" : page === "files" ? "ファイル" : "設定"}
+            {label}
           </button>
         ))}
         <div class="mt-auto">

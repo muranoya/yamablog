@@ -8,8 +8,15 @@ pub fn create_tera() -> Result<Tera> {
 }
 
 pub fn render(tera: &Tera, template: &str, ctx: &Context) -> Result<String> {
-    tera.render(template, ctx)
-        .map_err(|e| anyhow::anyhow!("render error in {template}: {e}"))
+    tera.render(template, ctx).map_err(|e| {
+        let mut msg = format!("render error in {template}: {e}");
+        let mut src: &dyn std::error::Error = &e;
+        while let Some(cause) = src.source() {
+            msg.push_str(&format!("\n  caused by: {cause}"));
+            src = cause;
+        }
+        anyhow::anyhow!(msg)
+    })
 }
 
 #[cfg(test)]
@@ -35,6 +42,8 @@ mod tests {
         ctx.insert("articles", &Vec::<serde_json::Value>::new());
         ctx.insert("page_number", &1u32);
         ctx.insert("total_pages", &1u32);
+        ctx.insert("bundle_js", "assets/bundle-test.js");
+        ctx.insert("bundle_css", "assets/bundle-test.css");
         let html = render(&tera, "article_list.html", &ctx).unwrap();
         assert!(html.contains("Test Blog"));
         assert!(html.contains("記事一覧"));
