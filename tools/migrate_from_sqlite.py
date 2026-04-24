@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""
+trail-behind-them SQLite → yamablog JSON 移行スクリプト
+
+Usage:
+  python3 tools/migrate_from_sqlite.py \
+    --db /path/to/blog.sqlite3 \
+    --output ./data
+
+出力:
+  data/manifest.json
+  data/articles/<id>.json
+  data/files/<dir-uuid>.json
+
+注意事項:
+  - カテゴリ・記事のIDは英数字タイトルからスラグ生成を試みる。
+    日本語タイトルは category-<番号> / article-<番号> 形式になる。
+    エディタで後から変更可能。
+  - 画像の "large" サイズは yamablog の "medium" にリネームされる。
+  - R2上のメディアファイルのパスが変わるため、別途ファイルの移行・再アップロードが必要。
+  - shooting_datetime のタイムゾーン情報はSQLiteに存在しないため付与しない。
+"""
+
+import argparse
+import json
+import re
+import sqlite3
+import unicodedata
+import uuid
+from pathlib import Path
+
+
+def new_uuid() -> str:
+    return str(uuid.uuid4())
+
+
+def slugify(text: str) -> str:
+    """文字列から [a-z0-9-] のスラグを生成。変換できない場合は空文字を返す。"""
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_only).strip("-")
+    return slug
+
+
+def make_unique_id(base: str, used: set) -> str:
+    candidate = base
+    n = 2
+    while candidate in used:
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
+
+
+def convert_sidebar(old_settings: str | None) -> dict:
+    """trail-behind-them の sidebar_settings → yamablog の sidebar オブジェクトに変換。"""
+    default = {
+        "panels": [
+            {"kind": "gpx_map",    "visible": True},
+            {"kind": "categories", "visible": True},
+            {"kind": "monthly",    "visible": True},
+        ]
+    }
+    if not old_settings:
+        return default
+    try:
+        panels = json.loads(old_settings)
+        # 旧形式: [{"key": "gpx_map", "visible": true}, ...]
+        # 新形式: {"panels": [{"kind": "gpx_map", "visible": true}, ...]}
+        converted = [{"kind": p["key"], "visible": p.get("visible", True)} for p in panels]
+        return {"panels": converted}
+    except (json.JSONDecodeError, KeyError):
+        return default
+
+
+def convert_image_data(raw: dict) -> tuple[dict, str | None]:
+    """trail-behind-them の image data → (sizes dict, shooting_datetime)"""
+    sizes = {}
+    size_key_map = {"original": "original", "large": "medium", "small": "small"}
+    for old_key, new_key in size_key_map.items():
+        s = raw.get(old_key)
+        if isinstance(s, dict):
+            sizes[new_key] = {"width": s.get("width"), "height": s.get("height")}
+    shooting_datetime = raw.get("shooting_datetime")
+    return sizes, shooting_datetime
+
+
+def convert_gpx_stats(raw: dict) -> dict:
+    """trail-behind-them の gpx data → yamablog の stats フィールド。"""
+    keys = ["start_at", "end_at", "distance_m", "cum_climb_m", "cum_down_m",
+            "max_elevation_m", "min_elevation_m"]
+    return {k: raw[k] for k in keys if k in raw}
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="trail-behind-them SQLite → yamablog JSON 移行スクリプト"
+    )
+    parser.add_argument("--db", required=True, help="SQLiteファイルのパス")
+    parser.add_argument("--output", required=True, help="出力先ディレクトリ（data/）")
+    args = parser.parse_args()
+
+    output = Path(args.output)
+    (output / "articles").mkdir(parents=True, exist_ok=True)
+    (output / "files").mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(args.db)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # ────────────────────────────────────────────────
+    # IDマッピング生成
+    # ────────────────────────────────────────────────
+
+    # ファイル: 旧int ID → 新UUID
+    cur.execute("SELECT id FROM files")
+    file_id_map: dict[int, str] = {row["id"]: new_uuid() for row in cur.fetchall()}
+
+    # ディレクトリ: 旧int ID → 新UUID
+    cur.execute("SELECT id FROM directories")
+    dir_id_map: dict[int, str] = {row["id"]: new_uuid() for row in cur.fetchall()}
+
+    # カテゴリ: 旧int ID → [a-z0-9-] 文字列
+    cur.execute("SELECT id, name FROM categories")
+    cat_id_map: dict[int, str] = {}
+    used_ids: set[str] = set()
+    for row in cur.fetchall():
+        base = slugify(row["name"]) or f"category-{row['id']}"
+        cat_id = make_unique_id(base, used_ids)
+        used_ids.add(cat_id)
+        cat_id_map[row["id"]] = cat_id
+
+    # 記事: 旧int ID → [a-z0-9-] 文字列
+    cur.execute("SELECT id, title FROM articles")
+    article_id_map: dict[int, str] = {}
+    used_ids = set()
+    for row in cur.fetchall():
+        base = slugify(row["title"]) or f"article-{row['id']}"
+        # スラグが短すぎる場合はIDベースにフォールバック
+        if len(base) < 3:
+            base = f"article-{row['id']}"
+        article_id = make_unique_id(base, used_ids)
+        used_ids.add(article_id)
+        article_id_map[row["id"]] = article_id
+
+    # マップメモ: 旧int ID → 新UUID
+    cur.execute("SELECT id FROM map_memos")
+    memo_id_map: dict[int, str] = {row["id"]: new_uuid() for row in cur.fetchall()}
+
+    # ────────────────────────────────────────────────
+    # manifest.json を組み立て
+    # ────────────────────────────────────────────────
+
+    # ブログ設定
+    cur.execute("SELECT top_image_file_id, sidebar_settings FROM blogs LIMIT 1")
+    blog_row = cur.fetchone()
+    top_image_id = None
+    sidebar = convert_sidebar(None)
+    if blog_row:
+        if blog_row["top_image_file_id"]:
+            top_image_id = file_id_map.get(blog_row["top_image_file_id"])
+        sidebar = convert_sidebar(blog_row["sidebar_settings"])
+
+    # カテゴリ
+    cur.execute("SELECT id, name, priority FROM categories ORDER BY priority")
+    categories = [
+        {"id": cat_id_map[r["id"]], "name": r["name"], "priority": r["priority"]}
+        for r in cur.fetchall()
+    ]
+
+    # ディレクトリ
+    cur.execute("SELECT id, name FROM directories ORDER BY id")
+    directories = [
+        {"id": dir_id_map[r["id"]], "name": r["name"]}
+        for r in cur.fetchall()
+    ]
+
+    # 記事サマリー
+    cur.execute("""
+        SELECT id, title, status, thumbnail, gpx_file_id, created_at, updated_at
+        FROM articles ORDER BY created_at DESC
+    """)
+    articles_meta = []
+    for r in cur.fetchall():
+        cur.execute(
+            "SELECT category_id FROM article_category WHERE article_id = ?", (r["id"],)
+        )
+        cat_ids = [
+            cat_id_map[cr["category_id"]]
+            for cr in cur.fetchall()
+            if cr["category_id"] in cat_id_map
+        ]
+        articles_meta.append({
+            "id": article_id_map[r["id"]],
+            "title": r["title"],
+            "status": "published" if r["status"] == 1 else "draft",
+            "category_ids": cat_ids,
+            "thumbnail": file_id_map.get(r["thumbnail"]) if r["thumbnail"] else None,
+            "gpx_file_id": file_id_map.get(r["gpx_file_id"]) if r["gpx_file_id"] else None,
+            "created_at": r["created_at"][:10] if r["created_at"] else None,
+            "updated_at": r["updated_at"][:10] if r["updated_at"] else None,
+        })
+
+    # マップメモ
+    cur.execute("SELECT id, kind, lat, lng, memo, image_id FROM map_memos")
+    map_memos = [
+        {
+            "id": memo_id_map[r["id"]],
+            "kind": r["kind"],
+            "lat": r["lat"],
+            "lng": r["lng"],
+            "memo": r["memo"] or "",
+            "image_id": file_id_map.get(r["image_id"]) if r["image_id"] else None,
+        }
+        for r in cur.fetchall()
+    ]
+
+    manifest = {
+        "version": 1,
+        "blog": {
+            "name": "Trail Behind Them",  # 必要に応じて変更してください
+            "top_image_id": top_image_id,
+            "sidebar": sidebar,
+        },
+        "categories": categories,
+        "directories": directories,
+        "articles": articles_meta,
+        "map_memos": map_memos,
+    }
+
+    with open(output / "manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    print(f"✓ manifest.json  ({len(articles_meta)} 記事 / {len(categories)} カテゴリ"
+          f" / {len(directories)} ディレクトリ / {len(map_memos)} マップメモ)")
+
+    # ────────────────────────────────────────────────
+    # data/files/<dir-uuid>.json を生成
+    # ────────────────────────────────────────────────
+
+    cur.execute("SELECT id, directory_id, name, kind, data, event_at FROM files")
+    files_by_dir: dict[str, list] = {}
+    skipped = 0
+    for r in cur.fetchall():
+        dir_uuid = dir_id_map.get(r["directory_id"])
+        if dir_uuid is None:
+            skipped += 1
+            continue
+
+        file_uuid = file_id_map[r["id"]]
+        raw_data = json.loads(r["data"]) if r["data"] else {}
+        kind_int_to_str = {0: "image", 1: "binary", 2: "gpx"}
+        kind = kind_int_to_str.get(r["kind"], "binary")
+
+        entry: dict = {"id": file_uuid, "kind": kind, "name": r["name"] or ""}
+
+        if kind == "image":
+            sizes, shooting_datetime = convert_image_data(raw_data)
+            entry["sizes"] = sizes
+            if shooting_datetime:
+                entry["shooting_datetime"] = shooting_datetime
+            if r["event_at"]:
+                entry["event_at"] = str(r["event_at"])[:10]
+
+        elif kind == "gpx":
+            if r["event_at"]:
+                entry["event_at"] = str(r["event_at"])[:10]
+            stats = convert_gpx_stats(raw_data)
+            if stats:
+                entry["stats"] = stats
+
+        # binary は追加フィールドなし（パスはname拡張子から導出）
+
+        files_by_dir.setdefault(dir_uuid, []).append(entry)
+
+    for dir_uuid, files in files_by_dir.items():
+        path = output / "files" / f"{dir_uuid}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(files, f, ensure_ascii=False, indent=2)
+
+    total_files = sum(len(v) for v in files_by_dir.values())
+    print(f"✓ data/files/    ({total_files} ファイル / {len(files_by_dir)} ディレクトリ"
+          + (f" / {skipped} 件スキップ（ディレクトリなし）" if skipped else "") + ")")
+
+    # ────────────────────────────────────────────────
+    # data/articles/<id>.json を生成
+    # ────────────────────────────────────────────────
+
+    cur.execute("SELECT id, content FROM articles")
+    article_count = 0
+    for r in cur.fetchall():
+        article_id_str = article_id_map[r["id"]]
+        content_blocks = []
+
+        if r["content"]:
+            try:
+                raw = json.loads(r["content"])
+                for block in raw.get("contents", []):
+                    kind = block.get("kind")
+                    bc = block.get("content", {})
+                    if kind == "text":
+                        content_blocks.append(
+                            {"kind": "text", "content": {"text": bc.get("text", "")}}
+                        )
+                    elif kind == "image":
+                        old_fid = bc.get("file_id")
+                        content_blocks.append({
+                            "kind": "image",
+                            "content": {
+                                "file_id": file_id_map.get(old_fid, "") if old_fid else "",
+                                "description": bc.get("description", ""),
+                            },
+                        })
+                    elif kind == "gpx":
+                        old_fid = bc.get("file_id")
+                        content_blocks.append({
+                            "kind": "gpx",
+                            "content": {
+                                "file_id": file_id_map.get(old_fid, "") if old_fid else "",
+                            },
+                        })
+                    elif kind == "binary":
+                        old_fid = bc.get("file_id")
+                        content_blocks.append({
+                            "kind": "binary",
+                            "content": {
+                                "file_id": file_id_map.get(old_fid, "") if old_fid else "",
+                            },
+                        })
+                    else:
+                        print(f"  警告: 記事 {r['id']} に未知のブロック種別 '{kind}'")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"  警告: 記事 {r['id']} のコンテンツ解析エラー: {e}")
+
+        article_data = {"id": article_id_str, "content": content_blocks}
+        path = output / "articles" / f"{article_id_str}.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(article_data, f, ensure_ascii=False, indent=2)
+        article_count += 1
+
+    print(f"✓ data/articles/ ({article_count} 記事)")
+
+    conn.close()
+
+    print("\n移行完了。")
+    print("次の手順:")
+    print("  1. manifest.json の blog.name を実際のブログ名に変更する")
+    print("  2. 日本語タイトルから生成された article-<番号> / category-<番号> ID を")
+    print("     エディタで任意のスラグに変更する（URLに影響）")
+    print("  3. メディアファイル（画像・GPX）を R2 の新パス規則に従って再アップロードする")
+    print("     旧: user_files/<dir>/<filename>")
+    print("     新: media/<uuid>-small.webp / media/<uuid>-medium.webp / media/<uuid>-original.webp")
+    print("         media/<uuid>.gpx")
+
+
+if __name__ == "__main__":
+    main()
