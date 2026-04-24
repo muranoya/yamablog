@@ -1,2 +1,6 @@
 .superpowers/
 .worktrees/
+/cli/target/
+/editor/node_modules/
+/editor/dist/
+/editor/src/types/
