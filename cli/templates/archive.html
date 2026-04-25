@@ -2,12 +2,28 @@
 {% block title %}{{ month }}月 | {{ blog_name }}{% endblock %}
 {% block content %}
 <h2>{{ month }}月の記事</h2>
-<ul class="article-list">
+<div class="article-grid">
 {% for article in articles %}
-  <li>
-    <a href="/articles/{{ article.id }}/">{{ article.title }}</a>
-    <time>{{ article.created_at }}</time>
-  </li>
+<a class="article-card" href="/articles/{{ article.id }}/">
+  <div class="article-card-thumb">
+    {% if article.thumbnail_src %}
+    <img src="{{ article.thumbnail_src }}" alt="{{ article.title }}" loading="lazy">
+    {% else %}
+    <div class="article-card-thumb-placeholder"></div>
+    {% endif %}
+  </div>
+  <div class="article-card-body">
+    {% if article.category_names %}
+    <div class="article-card-tags">
+      {% for name in article.category_names %}
+      <span class="article-card-tag">{{ name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <h3 class="article-card-title">{{ article.title }}</h3>
+    <time class="article-card-date">{% if article.hiking_date %}{{ article.hiking_date }}{% else %}{{ article.created_at }}{% endif %}</time>
+  </div>
+</a>
 {% endfor %}
-</ul>
+</div>
 {% endblock %}

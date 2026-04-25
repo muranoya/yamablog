@@ -23,12 +23,14 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sqlite3
 import sys
 import unicodedata
 import uuid
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -111,74 +113,112 @@ def convert_gpx_stats(raw: dict) -> dict:
     return result
 
 
-def convert_media_files(
+def _convert_image(src: str, dst: str) -> None:
+    """WebP変換ワーカー。ProcessPoolExecutor から呼ばれるためトップレベルに定義。"""
+    from PIL import Image
+    with Image.open(src) as img:
+        img.save(dst, "webp", quality=40, method=6)
+
+
+def _copy_file(src: str, dst: str) -> None:
+    shutil.copy2(src, dst)
+
+
+def copy_gpx_files(
+    conn: sqlite3.Connection,
+    user_files_base: Path,
+    gpx_out: Path,
+) -> None:
+    """user_files 内の GPX ファイルを data/gpx/<name> にコピーする。"""
+    gpx_out.mkdir(parents=True, exist_ok=True)
+    cur = conn.cursor()
+    cur.execute("SELECT name, data FROM files WHERE kind = 2")
+    rows = cur.fetchall()
+    copied, skipped = 0, 0
+    seen_names: set[str] = set()
+    for row in rows:
+        raw = json.loads(row["data"]) if row["data"] else {}
+        rel = raw.get("path")
+        if not rel:
+            skipped += 1
+            continue
+        src = user_files_base / rel
+        if not src.exists():
+            print(f"  警告: {src} が見つかりません", flush=True)
+            skipped += 1
+            continue
+        name = row["name"]
+        if name in seen_names:
+            print(f"  警告: ファイル名が重複しています（上書き）: {name}", flush=True)
+        seen_names.add(name)
+        shutil.copy2(str(src), str(gpx_out / name))
+        copied += 1
+    print(
+        f"✓ data/gpx/   GPX {copied} コピー"
+        + (f" / {skipped} 件スキップ（ファイル不在）" if skipped else "")
+    )
+
+
+def convert_image_files(
     conn: sqlite3.Connection,
     file_id_map: dict,
     user_files_base: Path,
-    media_out: Path,
+    images_out: Path,
+    workers: int,
 ) -> None:
-    """user_files 内の画像・GPX を media/ に WebP 変換またはコピーする。"""
-    try:
-        from PIL import Image
-    except ImportError:
-        sys.exit("エラー: Pillow が必要です。`pip install Pillow` でインストールしてください。")
-
-    media_out.mkdir(parents=True, exist_ok=True)
+    """user_files 内の画像を images/ に WebP 変換する。"""
+    images_out.mkdir(parents=True, exist_ok=True)
     cur = conn.cursor()
-    cur.execute("SELECT id, kind, data FROM files")
+    cur.execute("SELECT id, kind, data FROM files WHERE kind = 0")
     rows = cur.fetchall()
-    total = len(rows)
 
-    images_ok = images_skip = gpx_ok = gpx_skip = 0
+    image_tasks: list[tuple[str, str]] = []
+    skip_count = 0
 
-    for i, row in enumerate(rows, 1):
-        print(f"\r  {i}/{total} 処理中...", end="", flush=True)
-
+    for row in rows:
         new_uuid_str = file_id_map.get(row["id"])
         if not new_uuid_str:
             continue
-
         raw = json.loads(row["data"]) if row["data"] else {}
 
-        if row["kind"] == 0:  # image
-            size_map = {
-                "original": f"{new_uuid_str}-original.webp",
-                "large":    f"{new_uuid_str}-medium.webp",
-                "small":    f"{new_uuid_str}-small.webp",
-            }
-            for key, out_name in size_map.items():
-                s = raw.get(key, {})
-                rel = s.get("path") if isinstance(s, dict) else None
-                if not rel:
-                    continue
-                src = user_files_base / rel
-                dst = media_out / out_name
-                if not src.exists():
-                    images_skip += 1
-                    print(f"\n  警告: {src} が見つかりません", flush=True)
-                    continue
-                with Image.open(src) as img:
-                    img.save(dst, "webp", quality=85, method=6)
-                images_ok += 1
-
-        elif row["kind"] == 2:  # gpx
-            rel = raw.get("path")
+        size_map = {
+            "original": f"{new_uuid_str}-original.webp",
+            "large":    f"{new_uuid_str}-medium.webp",
+            "small":    f"{new_uuid_str}-small.webp",
+        }
+        for key, out_name in size_map.items():
+            s = raw.get(key, {})
+            rel = s.get("path") if isinstance(s, dict) else None
             if not rel:
                 continue
             src = user_files_base / rel
-            dst = media_out / f"{new_uuid_str}.gpx"
             if not src.exists():
-                gpx_skip += 1
-                print(f"\n  警告: {src} が見つかりません", flush=True)
+                skip_count += 1
+                print(f"  警告: {src} が見つかりません", flush=True)
                 continue
-            shutil.copy2(src, dst)
-            gpx_ok += 1
+            image_tasks.append((str(src), str(images_out / out_name)))
+
+    total = len(image_tasks)
+    done = 0
+    errors = 0
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_convert_image, src, dst): (src, dst)
+                   for src, dst in image_tasks}
+        for future in as_completed(futures):
+            done += 1
+            print(f"\r  画像 {done}/{total}", end="", flush=True)
+            try:
+                future.result()
+            except Exception as e:
+                errors += 1
+                src, _ = futures[future]
+                print(f"\n  エラー: {src}: {e}", flush=True)
 
     print()
-    skipped = images_skip + gpx_skip
     print(
-        f"✓ media/   画像 {images_ok} WebP 変換 / GPX {gpx_ok} コピー"
-        + (f" / {skipped} 件スキップ（ファイル不在）" if skipped else "")
+        f"✓ images/  画像 {total - errors} WebP 変換"
+        + (f" / {skip_count} 件スキップ（ファイル不在）" if skip_count else "")
+        + (f" / {errors} 件エラー" if errors else "")
     )
 
 
@@ -194,14 +234,21 @@ def main():
         help="user_files ルートディレクトリ（メディア変換時に必要）",
     )
     parser.add_argument(
-        "--media-out",
+        "--images-out",
         metavar="PATH",
-        help="media 出力ディレクトリ（メディア変換時に必要）",
+        help="images 出力ディレクトリ（画像変換時に必要）",
+    )
+    parser.add_argument(
+        "--workers",
+        metavar="N",
+        type=int,
+        default=os.cpu_count(),
+        help=f"並列ワーカー数（デフォルト: {os.cpu_count()}）",
     )
     args = parser.parse_args()
 
-    if bool(args.user_files) != bool(args.media_out):
-        sys.exit("エラー: --user-files と --media-out は両方同時に指定してください。")
+    if args.images_out and not args.user_files:
+        sys.exit("エラー: --images-out を使用する場合は --user-files も指定してください。")
 
     output = Path(args.output)
     (output / "articles").mkdir(parents=True, exist_ok=True)
@@ -437,13 +484,18 @@ def main():
 
     print(f"✓ data/articles/ ({article_count} 記事)")
 
-    if args.user_files and args.media_out:
-        print("\nメディアファイルを変換中...")
-        convert_media_files(
+    if args.user_files:
+        print("\nGPXファイルをコピー中...")
+        copy_gpx_files(conn, Path(args.user_files), output / "gpx")
+
+    if args.user_files and args.images_out:
+        print(f"\n画像ファイルを変換中... (workers={args.workers})")
+        convert_image_files(
             conn,
             file_id_map,
             Path(args.user_files),
-            Path(args.media_out),
+            Path(args.images_out),
+            args.workers,
         )
 
     conn.close()
@@ -453,11 +505,16 @@ def main():
     print("  1. manifest.json の blog.name を実際のブログ名に変更する")
     print("  2. 日本語タイトルから生成された article-<番号> / category-<番号> ID を")
     print("     エディタで任意のスラグに変更する（URLに影響）")
-    if not (args.user_files and args.media_out):
-        print("  3. メディアファイル（画像・GPX）を変換・アップロードする")
-        print("     --user-files と --media-out を指定して再実行すると自動変換できます")
+    if not args.user_files:
+        print("  3. メディアファイル（画像・GPX）を変換・コピーする")
+        print("     --user-files を指定して再実行すると自動処理できます")
+    elif not args.images_out:
+        print("  3. images/ の WebP 画像ファイルを変換・アップロードする")
+        print("     --images-out を指定して再実行すると自動変換できます")
+        print("  ※ data/gpx/ の GPX ファイルは Git で管理します（クラウドストレージ不要）")
     else:
-        print("  3. media/ の WebP・GPX ファイルを R2 にアップロードする")
+        print("  3. images/ の WebP ファイルを R2 にアップロードする")
+        print("  ※ data/gpx/ の GPX ファイルは Git で管理します（クラウドストレージ不要）")
 
 
 if __name__ == "__main__":

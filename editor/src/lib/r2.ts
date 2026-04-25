@@ -30,12 +30,8 @@ export async function uploadBlob(key: string, blob: Blob, contentType: string): 
 
 export async function uploadImage(uuid: string, processed: ProcessedImage): Promise<void> {
   await Promise.all([
-    uploadBlob(`media/${uuid}-small.webp`, processed.small, "image/webp"),
-    uploadBlob(`media/${uuid}-medium.webp`, processed.medium, "image/webp"),
-    uploadBlob(`media/${uuid}-original.webp`, processed.original, "image/webp"),
+    uploadBlob(`images/${uuid}-small.webp`, processed.small, "image/webp"),
+    uploadBlob(`images/${uuid}-medium.webp`, processed.medium, "image/webp"),
+    uploadBlob(`images/${uuid}-original.webp`, processed.original, "image/webp"),
   ]);
-}
-
-export async function uploadGpx(uuid: string, file: File): Promise<void> {
-  await uploadBlob(`media/${uuid}.gpx`, file, "application/gpx+xml");
 }

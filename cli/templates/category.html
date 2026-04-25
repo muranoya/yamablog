@@ -2,24 +2,63 @@
 {% block title %}{{ category_name }} | {{ blog_name }}{% endblock %}
 {% block content %}
 <h2>{{ category_name }}</h2>
-<ul class="article-list">
+<div class="article-grid">
 {% for article in articles %}
-  <li>
-    <a href="/articles/{{ article.id }}/">{{ article.title }}</a>
-    <time>{{ article.created_at }}</time>
-  </li>
+<a class="article-card" href="/articles/{{ article.id }}/">
+  <div class="article-card-thumb">
+    {% if article.thumbnail_src %}
+    <img src="{{ article.thumbnail_src }}" alt="{{ article.title }}" loading="lazy">
+    {% else %}
+    <div class="article-card-thumb-placeholder"></div>
+    {% endif %}
+  </div>
+  <div class="article-card-body">
+    {% if article.category_names %}
+    <div class="article-card-tags">
+      {% for name in article.category_names %}
+      <span class="article-card-tag">{{ name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <h3 class="article-card-title">{{ article.title }}</h3>
+    <time class="article-card-date">{% if article.hiking_date %}{{ article.hiking_date }}{% else %}{{ article.created_at }}{% endif %}</time>
+  </div>
+</a>
 {% endfor %}
-</ul>
+</div>
+{% if total_pages > 1 %}
 <nav class="pagination">
   {% if page_number > 1 %}
     {% if page_number == 2 %}
-      <a href="/categories/{{ category_id }}/">前のページ</a>
+      <a class="pagination-arrow" href="/categories/{{ category_id }}/">‹</a>
     {% else %}
-      <a href="/categories/{{ category_id }}/{{ page_number - 1 }}/">前のページ</a>
+      <a class="pagination-arrow" href="/categories/{{ category_id }}/{{ page_number - 1 }}/">‹</a>
     {% endif %}
   {% endif %}
+  {% for p in range(start=1, end=total_pages + 1) %}
+    {% if p == 1 or p == total_pages %}
+      {% if p == page_number %}
+        <span class="pagination-current">{{ p }}</span>
+      {% elif p == 1 %}
+        <a href="/categories/{{ category_id }}/">{{ p }}</a>
+      {% else %}
+        <a href="/categories/{{ category_id }}/{{ p }}/">{{ p }}</a>
+      {% endif %}
+    {% elif p >= page_number - 2 and p <= page_number + 2 %}
+      {% if p == page_number %}
+        <span class="pagination-current">{{ p }}</span>
+      {% else %}
+        <a href="/categories/{{ category_id }}/{{ p }}/">{{ p }}</a>
+      {% endif %}
+    {% elif p == 2 and page_number > 4 %}
+      <span class="pagination-gap">…</span>
+    {% elif p == total_pages - 1 and page_number < total_pages - 3 %}
+      <span class="pagination-gap">…</span>
+    {% endif %}
+  {% endfor %}
   {% if page_number < total_pages %}
-    <a href="/categories/{{ category_id }}/{{ page_number + 1 }}/">次のページ</a>
+    <a class="pagination-arrow" href="/categories/{{ category_id }}/{{ page_number + 1 }}/">›</a>
   {% endif %}
 </nav>
+{% endif %}
 {% endblock %}

@@ -32,7 +32,15 @@ fn main() {
     let schema_dir = Path::new(&manifest_dir).join("..").join("schema");
     let out_dir = std::env::var("OUT_DIR").unwrap();
 
-    generate_schema(&schema_dir.join("manifest.schema.json"), "manifest.rs", &out_dir);
-    generate_schema(&schema_dir.join("article.schema.json"), "article.rs", &out_dir);
+    generate_schema(
+        &schema_dir.join("manifest.schema.json"),
+        "manifest.rs",
+        &out_dir,
+    );
+    generate_schema(
+        &schema_dir.join("article.schema.json"),
+        "article.rs",
+        &out_dir,
+    );
     generate_schema(&schema_dir.join("files.schema.json"), "files.rs", &out_dir);
 }

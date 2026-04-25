@@ -2,29 +2,51 @@
 {% block title %}{{ article_title }} | {{ blog_name }}{% endblock %}
 {% block content %}
 <article>
-  <h1>{{ article_title }}</h1>
-  <time>{{ article_created_at }}</time>
+  <div class="article-header">
+    {% if article_category_names %}
+    <div class="article-cats">
+      {% for name in article_category_names %}
+      <span class="article-cat">{{ name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <h1>{{ article_title }}</h1>
+  </div>
   {% for block in content_blocks %}
     {% if block.kind == "text" %}
       <div class="text-block">{{ block.html | safe }}</div>
     {% elif block.kind == "image" %}
-      <figure>
+      <figure{% if block.medium_width %} style="max-width: {{ block.medium_width }}px"{% endif %}>
         <img
-          src="/media/{{ block.file_id }}-medium.webp"
+          src="/images/{{ block.file_id }}-medium.webp"
           alt="{{ block.description }}"
           loading="lazy"
+          data-original-src="{{ block.original_src }}"
+          class="lightbox-trigger"
+          {% if block.medium_width %}width="{{ block.medium_width }}"{% endif %}
+          {% if block.medium_height %}height="{{ block.medium_height }}"{% endif %}
         >
+        {% if block.shooting_datetime %}
+          <p class="image-datetime">撮影日時: {{ block.shooting_datetime | safe }}</p>
+        {% endif %}
         {% if block.description %}
           <figcaption>{{ block.description }}</figcaption>
         {% endif %}
       </figure>
     {% elif block.kind == "gpx" %}
       <div class="gpx-map"
-        data-gpx-url="/media/{{ block.file_id }}.gpx"
         data-polyline="{{ block.polyline }}"
         data-pins="{{ block.pins_json }}"
-        data-bbox="{{ block.bbox_json }}">
+        data-bbox="{{ block.bbox_json }}"
+        data-stats="{{ block.stats_json }}"
+        data-map-memos="{{ block.map_memos_json }}">
       </div>
+      {% if block.distances_json %}
+      <div class="elevation-chart"
+        data-distances="{{ block.distances_json }}"
+        data-elevations="{{ block.elevations_json }}">
+      </div>
+      {% endif %}
     {% endif %}
   {% endfor %}
 </article>

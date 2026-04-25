@@ -1,5 +1,3 @@
-.superpowers/
-.worktrees/
 /cli/target/
 /editor/node_modules/
 /editor/dist/
@@ -7,3 +5,9 @@
 /blog/node_modules/
 /blog/dist/
 /user_files/
+/data/
+/preview/
+/images/
+/tools/__pycache__
+.playwright-mcp/
+.claude/

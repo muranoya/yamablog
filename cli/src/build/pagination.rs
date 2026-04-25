@@ -1,4 +1,4 @@
-pub const ARTICLES_PER_PAGE: usize = 10;
+pub const ARTICLES_PER_PAGE: usize = 20;
 
 pub struct Page<T> {
     pub items: Vec<T>,
@@ -8,7 +8,11 @@ pub struct Page<T> {
 
 pub fn paginate<T: Clone>(items: &[T], per_page: usize) -> Vec<Page<T>> {
     if items.is_empty() {
-        return vec![Page { items: vec![], page_number: 1, total_pages: 1 }];
+        return vec![Page {
+            items: vec![],
+            page_number: 1,
+            total_pages: 1,
+        }];
     }
     let total_pages = items.len().div_ceil(per_page);
     (0..total_pages)

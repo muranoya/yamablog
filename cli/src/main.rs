@@ -27,18 +27,21 @@ enum Commands {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Build { data_dir, output_dir, blog_dist } => {
+        Commands::Build {
+            data_dir,
+            output_dir,
+            blog_dist,
+        } => {
             let blog_dist = blog_dist.unwrap_or_else(|| {
                 data_dir
                     .parent()
                     .unwrap_or(std::path::Path::new("."))
                     .join("blog/dist")
             });
-            build::run(&data_dir, &output_dir, &blog_dist).await?;
+            build::run(&data_dir, &output_dir, &blog_dist)?;
         }
     }
     Ok(())

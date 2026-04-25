@@ -1,3 +1,5 @@
+pub mod content_blocks;
+pub mod context;
 pub mod gpx;
 pub mod html;
 pub mod map_data;
@@ -5,17 +7,20 @@ pub mod markdown;
 pub mod pagination;
 
 use anyhow::{Context as _, Result};
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
-use serde::Serialize;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use tera::Context;
 
 use crate::data::load_blog_data;
-use crate::schema::article::ArticleContentItem;
-use crate::schema::files::{DirectoryFiles, DirectoryFilesItem};
-use crate::schema::manifest::{ManifestArticlesItem, ManifestArticlesItemStatus};
+use crate::schema::manifest::ManifestArticlesItemStatus;
 use std::fs;
+
+use content_blocks::{build_content_blocks, build_file_index};
+use context::{
+    article_summary_to_value, build_gpx_date_map, calc_category_counts, calc_monthly_counts,
+    format_timestamp,
+};
 
 struct BlogBundle {
     js_path: String,
@@ -49,58 +54,96 @@ fn load_blog_bundle(blog_dist: &Path) -> Result<BlogBundle> {
     let js_content = std::fs::read_to_string(blog_dist.join(&js_path))?;
     let css_content = std::fs::read_to_string(blog_dist.join(&css_path))?;
 
-    Ok(BlogBundle { js_path, css_path, js_content, css_content })
+    Ok(BlogBundle {
+        js_path,
+        css_path,
+        js_content,
+        css_content,
+    })
 }
 
-pub async fn run(
-    data_dir: &Path,
-    output_dir: &Path,
-    blog_dist: &Path,
-) -> Result<()> {
-    println!("Loading data from {}...", data_dir.display());
-    let blog = load_blog_data(data_dir)?;
-    let bundle = load_blog_bundle(blog_dist)?;
-    let tera = html::create_tera()?;
-    let gpx_date_map = build_gpx_date_map(&blog.files);
+fn fmt_duration(d: std::time::Duration) -> String {
+    let ms = d.as_millis();
+    if ms < 1000 {
+        format!("{}ms", ms)
+    } else {
+        format!("{:.2}s", d.as_secs_f64())
+    }
+}
 
-    // Filter to published articles, sort by created_at descending
-    let mut published: Vec<&ManifestArticlesItem> = blog
+pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
+    use std::time::Instant;
+
+    let total_start = Instant::now();
+    let preprocess_start = Instant::now();
+
+    println!("Loading data from {}...", data_dir.display());
+    let t = Instant::now();
+    let blog = load_blog_data(data_dir)?;
+    println!("  Loaded data [{}]", fmt_duration(t.elapsed()));
+
+    let gpx_dir = data_dir.join("gpx");
+
+    let t = Instant::now();
+    let bundle = load_blog_bundle(blog_dist)?;
+    println!("  Loaded bundle [{}]", fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
+    let tera = html::create_tera()?;
+    println!("  Initialized templates [{}]", fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
+    let gpx_date_map = build_gpx_date_map(&blog.files);
+    println!("  Built GPX date map [{}]", fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
+    let file_index = build_file_index(&blog.files);
+    println!("  Built file index [{}]", fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
+    let mut published: Vec<&crate::schema::manifest::ManifestArticlesItem> = blog
         .manifest
         .articles
         .iter()
         .filter(|a| a.status == ManifestArticlesItemStatus::Published)
         .collect();
     published.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    println!("  Sorted articles [{}]", fmt_duration(t.elapsed()));
 
-    // Monthly counts for sidebar (based on GPX stats.start_at)
+    let t = Instant::now();
     let monthly_counts = calc_monthly_counts(&published, &gpx_date_map);
-
-    // Common context fields
     let blog_name = &blog.manifest.blog.name;
     let sidebar_panels = &blog.manifest.blog.sidebar.panels;
     let categories = &blog.manifest.categories;
+    let categories_with_counts = calc_category_counts(&published, categories);
+    println!("  Calculated counts [{}]", fmt_duration(t.elapsed()));
 
-    // Helper: insert common context fields into a Context
     let build_ctx = || -> Result<Context> {
         let mut ctx = Context::new();
         ctx.insert("blog_name", blog_name);
         ctx.insert("sidebar_panels", sidebar_panels);
         ctx.insert("categories", categories);
+        ctx.insert("categories_with_counts", &categories_with_counts);
         ctx.insert("monthly_counts", &monthly_counts);
         ctx.insert("bundle_js", &bundle.js_path);
         ctx.insert("bundle_css", &bundle.css_path);
         Ok(ctx)
     };
 
+    let preprocess_elapsed = preprocess_start.elapsed();
+    println!("Pre-processing done [{}]", fmt_duration(preprocess_elapsed));
+
+    let generate_start = Instant::now();
+
     // --- Article list pages ---
     let pages = pagination::paginate(&published, pagination::ARTICLES_PER_PAGE);
     for page in &pages {
+        let t = Instant::now();
         let mut ctx = build_ctx()?;
-        // Serialize articles as JSON-compatible values for tera
         let articles_vals: Vec<serde_json::Value> = page
             .items
             .iter()
-            .map(|a| article_summary_to_value(a))
+            .map(|a| article_summary_to_value(a, categories, &gpx_date_map))
             .collect();
         ctx.insert("articles", &articles_vals);
         ctx.insert("page_number", &page.page_number);
@@ -112,26 +155,53 @@ pub async fn run(
             format!("{}/index.html", page.page_number)
         };
         write_file(output_dir, &key, &html_str)?;
-        println!("  Generated: {key}");
+        println!("  Generated: {key} [{}]", fmt_duration(t.elapsed()));
     }
 
     // --- Article detail pages ---
-    for article_summary in &published {
-        let id_str = article_summary.id.to_string();
-        if let Some(article) = blog.articles.get(&id_str) {
-            let content_blocks = build_content_blocks(article).await?;
-            let mut ctx = build_ctx()?;
-            ctx.insert("article_title", &article_summary.title);
-            ctx.insert(
-                "article_created_at",
-                &format_timestamp(article_summary.created_at),
-            );
-            ctx.insert("content_blocks", &content_blocks);
-            let html_str = html::render(&tera, "article.html", &ctx)?;
-            let key = format!("articles/{}/index.html", article_summary.id.as_str());
-            write_file(output_dir, &key, &html_str)?;
-            println!("  Generated: {key}");
-        }
+    let categories_map: HashMap<&str, &str> = categories
+        .iter()
+        .map(|c| (c.id.as_str(), c.name.as_str()))
+        .collect();
+
+    let article_results: Vec<Result<(String, String, std::time::Duration)>> = published
+        .par_iter()
+        .filter_map(|article_summary| {
+            let t = Instant::now();
+            let id_str = article_summary.id.to_string();
+            let article = blog.articles.get(&id_str)?;
+            let r: Result<(String, String)> = (|| {
+                let content_blocks = build_content_blocks(
+                    article,
+                    &file_index,
+                    &gpx_dir,
+                    &blog.manifest.map_memos,
+                )?;
+                let article_category_names: Vec<String> = article_summary
+                    .category_ids
+                    .iter()
+                    .filter_map(|cid| categories_map.get(cid.as_str()).map(|n| n.to_string()))
+                    .collect();
+                let mut ctx = build_ctx()?;
+                ctx.insert("article_title", &article_summary.title);
+                ctx.insert(
+                    "article_created_at",
+                    &format_timestamp(article_summary.created_at),
+                );
+                ctx.insert("article_category_names", &article_category_names);
+                ctx.insert("content_blocks", &content_blocks);
+                let html_str = html::render(&tera, "article.html", &ctx)?;
+                let key = format!("articles/{}/index.html", article_summary.id.as_str());
+                Ok((key, html_str))
+            })();
+            Some(r.map(|(key, html)| (key, html, t.elapsed())))
+        })
+        .collect();
+
+    for result in article_results {
+        let (key, html_str, elapsed) = result?;
+        write_file(output_dir, &key, &html_str)?;
+        println!("  Generated: {key} [{}]", fmt_duration(elapsed));
     }
 
     // --- Category pages ---
@@ -140,11 +210,12 @@ pub async fn run(
         let cat_articles: Vec<serde_json::Value> = published
             .iter()
             .filter(|a| a.category_ids.iter().any(|cid| cid.as_str() == cat_id_str))
-            .map(|a| article_summary_to_value(a))
+            .map(|a| article_summary_to_value(a, categories, &gpx_date_map))
             .collect();
 
         let cat_pages = pagination::paginate(&cat_articles, pagination::ARTICLES_PER_PAGE);
         for page in &cat_pages {
+            let t = Instant::now();
             let mut ctx = build_ctx()?;
             ctx.insert("category_id", &cat_id_str);
             ctx.insert("category_name", &cat.name);
@@ -155,15 +226,21 @@ pub async fn run(
             let key = if page.page_number == 1 {
                 format!("categories/{}/index.html", cat.id.as_str())
             } else {
-                format!("categories/{}/{}/index.html", cat.id.as_str(), page.page_number)
+                format!(
+                    "categories/{}/{}/index.html",
+                    cat.id.as_str(),
+                    page.page_number
+                )
             };
             write_file(output_dir, &key, &html_str)?;
-            println!("  Generated: {key}");
+            println!("  Generated: {key} [{}]", fmt_duration(t.elapsed()));
         }
     }
 
     // --- Monthly archive pages ---
     for m in &monthly_counts {
+        use chrono::Datelike;
+        let t = Instant::now();
         let month_articles: Vec<serde_json::Value> = published
             .iter()
             .filter(|a| {
@@ -172,7 +249,7 @@ pub async fn run(
                     .map(|d| d.month() == m.month)
                     .unwrap_or(false)
             })
-            .map(|a| article_summary_to_value(a))
+            .map(|a| article_summary_to_value(a, categories, &gpx_date_map))
             .collect();
 
         let mut ctx = build_ctx()?;
@@ -181,168 +258,34 @@ pub async fn run(
         let html_str = html::render(&tera, "archive.html", &ctx)?;
         let key = format!("archives/{}/index.html", m.month);
         write_file(output_dir, &key, &html_str)?;
-        println!("  Generated: {key}");
+        println!("  Generated: {key} [{}]", fmt_duration(t.elapsed()));
     }
 
-    write_file(output_dir, &bundle.css_path, &bundle.css_content)?;
-    write_file(output_dir, &bundle.js_path, &bundle.js_content)?;
-    println!("  Generated: {}", bundle.css_path);
-    println!("  Generated: {}", bundle.js_path);
+    // --- map-data.json ---
+    let t = Instant::now();
+    let gpx_tracks = map_data::collect_gpx_tracks(&published, &blog.files, &gpx_dir);
+    let map_data_out = map_data::build_map_data(&blog.manifest.map_memos, &gpx_tracks);
+    let map_data_json = serde_json::to_string(&map_data_out)?;
+    write_file(output_dir, "map-data.json", &map_data_json)?;
+    println!("  Generated: map-data.json [{}]", fmt_duration(t.elapsed()));
 
+    let t = Instant::now();
+    write_file(output_dir, &bundle.css_path, &bundle.css_content)?;
+    println!("  Generated: {} [{}]", bundle.css_path, fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
+    write_file(output_dir, &bundle.js_path, &bundle.js_content)?;
+    println!("  Generated: {} [{}]", bundle.js_path, fmt_duration(t.elapsed()));
+
+    let generate_elapsed = generate_start.elapsed();
+    let total_elapsed = total_start.elapsed();
+    println!("---");
+    println!("Pre-processing : {}", fmt_duration(preprocess_elapsed));
+    println!("Generation     : {}", fmt_duration(generate_elapsed));
+    println!("Total          : {}", fmt_duration(total_elapsed));
     println!("Build complete!");
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Content blocks
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize)]
-struct ContentBlock {
-    kind: &'static str,
-    // text
-    #[serde(skip_serializing_if = "Option::is_none")]
-    html: Option<String>,
-    // image / gpx / binary
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    // gpx
-    #[serde(skip_serializing_if = "Option::is_none")]
-    polyline: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pins_json: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bbox_json: Option<String>,
-}
-
-async fn build_content_blocks(
-    article: &crate::schema::article::Article,
-) -> Result<Vec<ContentBlock>> {
-    let mut blocks = Vec::new();
-
-    for item in &article.content {
-        match item {
-            ArticleContentItem::Text { text } => {
-                let html_str = markdown::markdown_to_html(text);
-                blocks.push(ContentBlock {
-                    kind: "text",
-                    html: Some(html_str),
-                    file_id: None,
-                    description: None,
-                    polyline: None,
-                    pins_json: None,
-                    bbox_json: None,
-                });
-            }
-            ArticleContentItem::Image { file_id, description } => {
-                blocks.push(ContentBlock {
-                    kind: "image",
-                    html: None,
-                    file_id: Some(file_id.to_string()),
-                    description: description.clone(),
-                    polyline: None,
-                    pins_json: None,
-                    bbox_json: None,
-                });
-            }
-            ArticleContentItem::Gpx { file_id } => {
-                blocks.push(ContentBlock {
-                    kind: "gpx",
-                    html: None,
-                    file_id: Some(file_id.to_string()),
-                    description: None,
-                    polyline: Some(String::new()),
-                    pins_json: Some("[]".to_string()),
-                    bbox_json: Some("{}".to_string()),
-                });
-            }
-            ArticleContentItem::Binary { file_id } => {
-                blocks.push(ContentBlock {
-                    kind: "binary",
-                    html: None,
-                    file_id: Some(file_id.to_string()),
-                    description: None,
-                    polyline: None,
-                    pins_json: None,
-                    bbox_json: None,
-                });
-            }
-        }
-    }
-
-    Ok(blocks)
-}
-
-// ---------------------------------------------------------------------------
-// Monthly counts
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Clone)]
-pub struct MonthCount {
-    pub month: u32,
-    pub count: usize,
-}
-
-fn calc_monthly_counts(
-    articles: &[&ManifestArticlesItem],
-    gpx_date_map: &HashMap<uuid::Uuid, NaiveDate>,
-) -> Vec<MonthCount> {
-    use std::collections::BTreeMap;
-    let mut map: BTreeMap<u32, usize> = BTreeMap::new();
-    for a in articles {
-        if let Some(date) = a.gpx_file_id.and_then(|id| gpx_date_map.get(&id)) {
-            *map.entry(date.month()).or_insert(0) += 1;
-        }
-    }
-    // January first
-    let mut counts: Vec<MonthCount> = map
-        .into_iter()
-        .map(|(month, count)| MonthCount { month, count })
-        .collect();
-    counts.sort_by(|a, b| a.month.cmp(&b.month));
-    counts
-}
-
-fn build_gpx_date_map(files: &HashMap<String, DirectoryFiles>) -> HashMap<uuid::Uuid, NaiveDate> {
-    let mut map = HashMap::new();
-    for dir_files in files.values() {
-        for item in dir_files.iter() {
-            if let DirectoryFilesItem::Gpx { id, stats, .. } = item {
-                if let Some(ts) = stats.start_at {
-                    if let Some(dt) = DateTime::from_timestamp(ts, 0) {
-                        map.insert(*id, dt.date_naive());
-                    }
-                }
-            }
-        }
-    }
-    map
-}
-
-// ---------------------------------------------------------------------------
-// Serialize article summary for Tera context
-// ---------------------------------------------------------------------------
-
-fn article_summary_to_value(a: &ManifestArticlesItem) -> serde_json::Value {
-    serde_json::json!({
-        "id": a.id.to_string(),
-        "title": a.title,
-        "created_at": format_timestamp(a.created_at),
-        "category_ids": a.category_ids.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
-    })
-}
-
-fn format_timestamp(ts: i64) -> String {
-    DateTime::from_timestamp(ts, 0)
-        .map(|dt: DateTime<Utc>| dt.format("%Y-%m-%d").to_string())
-        .unwrap_or_default()
-}
-
-// ---------------------------------------------------------------------------
-// Write output file to disk
-// ---------------------------------------------------------------------------
 
 fn write_file(output_dir: &Path, key: &str, content: &str) -> Result<()> {
     let path = output_dir.join(key);
@@ -351,17 +294,12 @@ fn write_file(output_dir: &Path, key: &str, content: &str) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Integration tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
 
     fn sample_data_dir() -> PathBuf {
-        // Points at <repo>/data which is created as sample data
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         PathBuf::from(manifest_dir).join("..").join("data")
     }
@@ -371,34 +309,33 @@ mod tests {
         PathBuf::from(manifest_dir).join("..").join("blog/dist")
     }
 
-    #[tokio::test]
-    async fn test_dry_run_build() {
+    #[test]
+    fn test_dry_run_build() {
         let data_dir = sample_data_dir();
         if !data_dir.join("manifest.json").exists() {
-            // Skip if sample data not present
             return;
         }
         let blog_dist = sample_blog_dist();
         if !blog_dist.join(".vite/manifest.json").exists() {
-            // Skip if blog has not been built yet
             return;
         }
         let output_dir = std::env::temp_dir().join("yamablog-test-output");
-        run(&data_dir, &output_dir, &blog_dist)
-            .await
-            .expect("build should succeed");
+        run(&data_dir, &output_dir, &blog_dist).expect("build should succeed");
 
-        // Verify expected output files
         assert!(
             output_dir.join("index.html").exists(),
             "index.html should be generated"
         );
 
-        // Verify index.html contains hashed bundle paths
-        let index_html =
-            std::fs::read_to_string(output_dir.join("index.html")).unwrap();
-        assert!(index_html.contains("assets/bundle-"), "hashed bundle path in index");
-        assert!(index_html.contains(".css"), "bundle.css referenced in index");
+        let index_html = std::fs::read_to_string(output_dir.join("index.html")).unwrap();
+        assert!(
+            index_html.contains("assets/bundle-"),
+            "hashed bundle path in index"
+        );
+        assert!(
+            index_html.contains(".css"),
+            "bundle.css referenced in index"
+        );
         assert!(index_html.contains(".js"), "bundle.js referenced in index");
     }
 }

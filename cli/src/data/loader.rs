@@ -25,7 +25,8 @@ pub fn load_blog_data(data_dir: &Path) -> Result<BlogData> {
     let articles_dir = data_dir.join("articles");
     if articles_dir.exists() {
         for entry in std::fs::read_dir(&articles_dir)
-            .with_context(|| format!("cannot read directory {}", articles_dir.display()))? {
+            .with_context(|| format!("cannot read directory {}", articles_dir.display()))?
+        {
             let entry = entry?;
             let path = entry.path();
             if path.extension().map(|e| e == "json").unwrap_or(false) {
@@ -44,7 +45,8 @@ pub fn load_blog_data(data_dir: &Path) -> Result<BlogData> {
     let files_dir = data_dir.join("files");
     if files_dir.exists() {
         for entry in std::fs::read_dir(&files_dir)
-            .with_context(|| format!("cannot read directory {}", files_dir.display()))? {
+            .with_context(|| format!("cannot read directory {}", files_dir.display()))?
+        {
             let entry = entry?;
             let path = entry.path();
             if path.extension().map(|e| e == "json").unwrap_or(false) {
