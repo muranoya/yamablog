@@ -1,6 +1,6 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { getPublicImageUrl } from "../lib/r2";
+import { getPublicImageUrl } from "../lib/s3";
 import {
   getArticleBlocks,
   isArticleLoaded,
@@ -87,6 +87,7 @@ export default function ArticleEditPage(props: Props) {
         image_uuid: uuid,
         description: "",
         gpx_filename: "",
+        shooting_datetime: img?.shooting_datetime ?? null,
       });
     }
     setShowImageBatchPicker(false);
@@ -433,6 +434,7 @@ export default function ArticleEditPage(props: Props) {
                       image_uuid: null,
                       description: "",
                       gpx_filename: "",
+                      shooting_datetime: null,
                     })
                   }
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 transition-colors"
@@ -456,6 +458,7 @@ export default function ArticleEditPage(props: Props) {
                       image_uuid: null,
                       description: "",
                       gpx_filename: "",
+                      shooting_datetime: null,
                     })
                   }
                   class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-600 bg-zinc-100 hover:bg-zinc-200 transition-colors"
@@ -508,6 +511,7 @@ export default function ArticleEditPage(props: Props) {
                         <Show when={block.kind === "image"}>
                           <ImageBlock
                             imageUuid={block.image_uuid}
+                            shootingDatetime={block.shooting_datetime}
                             description={block.description}
                             onDescriptionChange={(d) =>
                               updateBlock(props.articleId, i(), { description: d })

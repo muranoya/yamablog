@@ -1,10 +1,10 @@
 import { createSignal } from "solid-js";
 import {
-  hasStoredConfig, loadR2Config, saveR2Config,
-  loadPublicConfig, savePublicConfig, clearR2Config, clearLastDataDir,
-  type R2Config
+  loadS3Config, saveS3Config,
+  loadPublicConfig, savePublicConfig, clearS3Config, clearLastDataDir,
+  type S3Config
 } from "../lib/crypto";
-import { initR2Client, getCurrentR2Config } from "../lib/r2";
+import { initS3Client, getCurrentS3Config } from "../lib/s3";
 import { Button } from "../components/ui/Button";
 import { Card, CardHeader } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
@@ -12,7 +12,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 
 export default function SettingsPage() {
   // 非機密フィールド — plaintext から即座に読み込む
-  const [pubConfig, setPubConfig] = createSignal<Partial<R2Config>>(loadPublicConfig());
+  const [pubConfig, setPubConfig] = createSignal<Partial<S3Config>>(loadPublicConfig());
   const [pubSaveStatus, setPubSaveStatus] = createSignal<"idle" | "saved">("idle");
 
   // シークレットアクセスキー更新
@@ -31,9 +31,9 @@ export default function SettingsPage() {
     const cfg = pubConfig();
     savePublicConfig(cfg);
     // アンロック済みの場合、インメモリのシークレットを使って R2 クライアントを再初期化
-    const current = getCurrentR2Config();
+    const current = getCurrentS3Config();
     if (current) {
-      initR2Client({ ...current, ...cfg });
+      initS3Client({ ...current, ...cfg });
     }
     setPubSaveStatus("saved");
     setTimeout(() => setPubSaveStatus("idle"), 3000);
@@ -44,14 +44,14 @@ export default function SettingsPage() {
       setSecretStatus("error");
       return;
     }
-    const existing = await loadR2Config(secretPassphrase());
+    const existing = await loadS3Config(secretPassphrase());
     if (!existing) {
       setSecretStatus("error");
       return;
     }
-    const merged: R2Config = { ...existing, ...pubConfig(), secretAccessKey: newSecret() };
-    await saveR2Config(merged, secretPassphrase());
-    initR2Client(merged);
+    const merged: S3Config = { ...existing, ...pubConfig(), secretAccessKey: newSecret() };
+    await saveS3Config(merged, secretPassphrase());
+    initS3Client(merged);
     setSecretStatus("saved");
     setNewSecret("");
     setSecretPassphrase("");
@@ -63,12 +63,12 @@ export default function SettingsPage() {
     if (!newPass()) { setPassChangeError("新しいパスフレーズを入力してください"); return; }
     if (newPass() !== confirmPass()) { setPassChangeError("新しいパスフレーズが一致しません"); return; }
 
-    const cfg = await loadR2Config(currentPass());
+    const cfg = await loadS3Config(currentPass());
     if (!cfg) { setPassChangeError("現在のパスフレーズが違います"); return; }
 
     try {
-      await saveR2Config(cfg, newPass());
-      initR2Client(cfg);
+      await saveS3Config(cfg, newPass());
+      initS3Client(cfg);
       setPassChangeStatus("success");
       setCurrentPass("");
       setNewPass("");
@@ -80,16 +80,15 @@ export default function SettingsPage() {
 
   function handleDeleteConfig() {
     if (!window.confirm("ストレージ設定を削除しますか？\nアプリがリセットされます。")) return;
-    clearR2Config();
+    clearS3Config();
     clearLastDataDir();
     window.location.reload();
   }
 
   const PUBLIC_FIELDS = [
-    { key: "endpointUrl" as const, label: "エンドポイントURL", optional: true, placeholder: "" },
     { key: "bucket" as const, label: "バケット名", optional: false, placeholder: "my-bucket" },
     { key: "accessKeyId" as const, label: "アクセスキーID", optional: false, placeholder: "" },
-    { key: "publicUrl" as const, label: "公開URL", optional: true, placeholder: "https://your-bucket.example.com" },
+    { key: "publicUrl" as const, label: "公開URL", optional: true, placeholder: "https://your-bucket.example.com", hint: "入力すると編集画面で画像プレビューが表示されます。未入力の場合、プレビューは表示されません。" },
   ];
 
   return (
@@ -108,18 +107,23 @@ export default function SettingsPage() {
           </CardHeader>
           <div class="p-5 space-y-4">
             {PUBLIC_FIELDS.map((field) => (
-              <Input
-                label={field.label}
-                type="text"
-                optional={field.optional}
-                required={!field.optional}
-                placeholder={field.placeholder}
-                value={(pubConfig() as any)[field.key] ?? ""}
-                onInput={(e: Event) =>
-                  setPubConfig((prev) => ({ ...prev, [field.key]: (e.currentTarget as HTMLInputElement).value }))
-                }
-                class="font-mono"
-              />
+              <div>
+                <Input
+                  label={field.label}
+                  type="text"
+                  optional={field.optional}
+                  required={!field.optional}
+                  placeholder={field.placeholder}
+                  value={(pubConfig() as any)[field.key] ?? ""}
+                  onInput={(e: Event) =>
+                    setPubConfig((prev) => ({ ...prev, [field.key]: (e.currentTarget as HTMLInputElement).value }))
+                  }
+                  class="font-mono"
+                />
+                {field.hint && (
+                  <p class="text-xs text-zinc-400 mt-1.5">{field.hint}</p>
+                )}
+              </div>
             ))}
             <div class="flex items-center gap-3 pt-1">
               <Button variant="primary" onClick={handleSavePublic}>保存</Button>

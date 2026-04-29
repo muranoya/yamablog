@@ -1,6 +1,6 @@
 import { batch, createSignal, Switch, Match } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { hasStoredConfig, getLastDataDir, saveLastDataDir, type R2Config } from "./lib/crypto";
+import { hasStoredConfig, getLastDataDir, saveLastDataDir, type S3Config } from "./lib/crypto";
 import { loadFromDataDir } from "./lib/importer";
 import SetupStoragePage from "./pages/SetupStoragePage";
 import SetupPasswordPage from "./pages/SetupPasswordPage";
@@ -21,7 +21,7 @@ export default function App() {
   const initialStep: AppStep = hasStoredConfig() ? "unlocking" : "setup-storage";
   const [step, setStep] = createSignal<AppStep>(initialStep);
   const [currentPage, setCurrentPage] = createSignal<Page>("articles");
-  const [pendingConfig, setPendingConfig] = createSignal<R2Config | null>(null);
+  const [pendingConfig, setPendingConfig] = createSignal<S3Config | null>(null);
   const [selectedDirId, setSelectedDirId] = createSignal<number | null>(null);
 
   async function handleUnlocked() {

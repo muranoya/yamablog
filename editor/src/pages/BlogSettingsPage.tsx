@@ -1,7 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import { getManifest, updateBlogName, updateBlogTopImage } from "../store/manifest";
 import { getImageByUuid } from "../store/files";
-import { getPublicImageUrl } from "../lib/r2";
+import { getPublicImageUrl } from "../lib/s3";
 import { Card, CardHeader } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
 import { PageHeader } from "../components/ui/PageHeader";

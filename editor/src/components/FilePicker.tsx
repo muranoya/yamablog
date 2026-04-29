@@ -10,7 +10,7 @@ import {
 } from "../store/files";
 import { getGpxIndex, getGpxFile, getGpxEntry, type GpxIndexItem } from "../store/gpx";
 import { parseGpxPolyline } from "../lib/gpx";
-import { getPublicImageUrl } from "../lib/r2";
+import { getPublicImageUrl } from "../lib/s3";
 import { FolderIcon, ChevronDownIcon, ChevronRightIcon, RouteIcon, XIcon } from "./icons";
 
 interface Props {

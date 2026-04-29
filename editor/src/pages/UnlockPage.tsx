@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
-import { loadR2Config, loadPublicConfig } from "../lib/crypto";
-import { initR2Client } from "../lib/r2";
+import { loadS3Config, loadPublicConfig } from "../lib/crypto";
+import { initS3Client } from "../lib/s3";
 import { LockIcon } from "../components/icons";
 
 interface Props {
@@ -18,7 +18,7 @@ export default function UnlockPage(props: Props) {
     setLoading(true);
     setError(null);
     try {
-      const config = await loadR2Config(passphrase());
+      const config = await loadS3Config(passphrase());
       if (!config) {
         setError("パスフレーズが違います");
         setShake(true);
@@ -26,7 +26,7 @@ export default function UnlockPage(props: Props) {
         return;
       }
       // 設定画面で後から更新された publicUrl 等を平文設定からマージする
-      initR2Client({ ...config, ...loadPublicConfig() });
+      initS3Client({ ...config, ...loadPublicConfig() });
       props.onUnlocked();
     } finally {
       setLoading(false);

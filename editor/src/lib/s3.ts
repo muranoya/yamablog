@@ -1,23 +1,22 @@
 import { createSignal } from "solid-js";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import type { R2Config } from "./crypto";
+import type { S3Config } from "./crypto";
 import type { ProcessedImage } from "./image";
 import type { DbImage } from "../store/files";
 
 let client: S3Client | null = null;
 let currentBucket: string | null = null;
-let currentConfig: R2Config | null = null;
+let currentConfig: S3Config | null = null;
 const [publicUrl, setPublicUrl] = createSignal<string | null>(null);
 
-export function getCurrentR2Config(): R2Config | null {
+export function getCurrentS3Config(): S3Config | null {
   return currentConfig;
 }
 
-export function initR2Client(config: R2Config) {
+export function initS3Client(config: S3Config) {
   currentConfig = config;
   client = new S3Client({
     region: "auto",
-    ...(config.endpointUrl ? { endpoint: config.endpointUrl } : {}),
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,

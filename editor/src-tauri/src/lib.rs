@@ -87,6 +87,7 @@ pub struct DbBlock {
     pub image_uuid: Option<String>,
     pub description: Option<String>,
     pub gpx_filename: Option<String>,
+    pub shooting_datetime: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -404,7 +405,7 @@ fn db_get_article_blocks(
         .prepare(
             "SELECT ab.id, ab.sort_order, ab.kind,
                     ab.text_content, ab.image_id, i.uuid,
-                    ab.description, ab.gpx_filename
+                    ab.description, ab.gpx_filename, i.shooting_datetime
              FROM article_blocks ab
              LEFT JOIN images i ON i.id = ab.image_id
              WHERE ab.article_id = ?
@@ -422,6 +423,7 @@ fn db_get_article_blocks(
                 image_uuid: row.get(5)?,
                 description: row.get(6)?,
                 gpx_filename: row.get(7)?,
+                shooting_datetime: row.get(8)?,
             })
         })
         .map_err(|e| e.to_string())?

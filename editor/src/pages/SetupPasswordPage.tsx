@@ -1,10 +1,10 @@
 import { createSignal } from "solid-js";
-import { saveR2Config, type R2Config } from "../lib/crypto";
-import { initR2Client } from "../lib/r2";
+import { saveS3Config, type S3Config } from "../lib/crypto";
+import { initS3Client } from "../lib/s3";
 import { Input } from "../components/ui/Input";
 
 interface Props {
-  config: R2Config;
+  config: S3Config;
   onDone: () => void;
 }
 
@@ -34,8 +34,8 @@ export default function SetupPasswordPage(props: Props) {
     setLoading(true);
     setError(null);
     try {
-      await saveR2Config(props.config, passphrase());
-      initR2Client(props.config);
+      await saveS3Config(props.config, passphrase());
+      initS3Client(props.config);
       props.onDone();
     } catch {
       setError("保存に失敗しました。もう一度お試しください。");

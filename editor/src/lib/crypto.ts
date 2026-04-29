@@ -1,31 +1,32 @@
-export interface R2Config {
-  endpointUrl?: string;
+export interface S3Config {
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
   publicUrl?: string;
 }
 
-const STORAGE_KEY = "yamablog_r2_config";
-const PUBLIC_CONFIG_KEY = "yamablog_r2_public_config";
+const STORAGE_KEY = "yamablog_s3_config";
+const PUBLIC_CONFIG_KEY = "yamablog_s3_public_config";
+const LEGACY_STORAGE_KEY = "yamablog_r2_config";
+const LEGACY_PUBLIC_CONFIG_KEY = "yamablog_r2_public_config";
 
-export function savePublicConfig(config: Partial<R2Config>): void {
-  const { secretAccessKey: _s, ...pub } = config as R2Config;
+export function savePublicConfig(config: Partial<S3Config>): void {
+  const { secretAccessKey: _s, ...pub } = config as S3Config;
   localStorage.setItem(PUBLIC_CONFIG_KEY, JSON.stringify(pub));
 }
 
-export function loadPublicConfig(): Partial<R2Config> {
+export function loadPublicConfig(): Partial<S3Config> {
   const raw = localStorage.getItem(PUBLIC_CONFIG_KEY);
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-export function clearR2Config(): void {
+export function clearS3Config(): void {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(PUBLIC_CONFIG_KEY);
 }
 
-export async function saveR2Config(config: R2Config, passphrase: string): Promise<void> {
+export async function saveS3Config(config: S3Config, passphrase: string): Promise<void> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await deriveKey(passphrase, salt);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -41,7 +42,7 @@ export async function saveR2Config(config: R2Config, passphrase: string): Promis
   savePublicConfig(config);
 }
 
-export async function loadR2Config(passphrase: string): Promise<R2Config | null> {
+export async function loadS3Config(passphrase: string): Promise<S3Config | null> {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   try {
@@ -52,13 +53,22 @@ export async function loadR2Config(passphrase: string): Promise<R2Config | null>
       key,
       base64ToBuf(data) as BufferSource
     );
-    return JSON.parse(new TextDecoder().decode(plaintext)) as R2Config;
+    return JSON.parse(new TextDecoder().decode(plaintext)) as S3Config;
   } catch {
     return null;
   }
 }
 
 export function hasStoredConfig(): boolean {
+  // 旧キー（r2）から新キー（s3）への一度限りの移行
+  if (!localStorage.getItem(STORAGE_KEY) && localStorage.getItem(LEGACY_STORAGE_KEY)) {
+    localStorage.setItem(STORAGE_KEY, localStorage.getItem(LEGACY_STORAGE_KEY)!);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  }
+  if (!localStorage.getItem(PUBLIC_CONFIG_KEY) && localStorage.getItem(LEGACY_PUBLIC_CONFIG_KEY)) {
+    localStorage.setItem(PUBLIC_CONFIG_KEY, localStorage.getItem(LEGACY_PUBLIC_CONFIG_KEY)!);
+    localStorage.removeItem(LEGACY_PUBLIC_CONFIG_KEY);
+  }
   return localStorage.getItem(STORAGE_KEY) !== null;
 }
 

@@ -9,6 +9,7 @@ export interface ArticleBlock {
   image_uuid: string | null;
   description: string;
   gpx_filename: string;
+  shooting_datetime: number | null;
 }
 
 const [blocksStore, setBlocksStore] = createStore<Record<string, ArticleBlock[]>>({});

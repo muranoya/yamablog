@@ -5,7 +5,7 @@ import type { DbMapMemo } from "../store/manifest";
 import { MAP_MEMO_KINDS, createMarkerIcon } from "../lib/leafletIconHelper";
 import { getDirectoryImages } from "../store/files";
 import type { DbImage } from "../store/files";
-import { getPublicImageUrl } from "../lib/r2";
+import { getPublicImageUrl } from "../lib/s3";
 import { Button } from "../components/ui/Button";
 import { Lightbox } from "../components/ui/Lightbox";
 import { XIcon, MapPinIcon, ImageIcon, EyeIcon } from "../components/icons";

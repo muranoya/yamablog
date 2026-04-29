@@ -6,7 +6,7 @@ import {
   isLoaded,
   type DbImage,
 } from "../store/files";
-import { getSmallSrc } from "../lib/r2";
+import { getSmallSrc } from "../lib/s3";
 import { Button } from "./ui/Button";
 import { FolderIcon, ChevronDownIcon, ChevronRightIcon, XIcon } from "./icons";
 

@@ -9,7 +9,7 @@ import {
   type DbImage,
 } from "../store/files";
 import { processImage } from "../lib/image";
-import { uploadImage, getSmallSrc, getMediumSrc, getOriginalSrc } from "../lib/r2";
+import { uploadImage, getSmallSrc, getMediumSrc, getOriginalSrc } from "../lib/s3";
 import { Lightbox } from "../components/ui/Lightbox";
 import { Button } from "../components/ui/Button";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -81,33 +81,36 @@ export default function FileListPage(props: Props) {
   }
 
   return (
-    <div class="max-w-4xl mx-auto px-8 py-8">
-      <div class="flex items-center gap-2 mb-2 text-sm text-zinc-500">
-        <button
-          class="flex items-center gap-1 hover:text-zinc-900 transition-colors"
-          onClick={props.onBack}
-        >
-          <ChevronLeftIcon />
-          ディレクトリ
-        </button>
-        <span>/</span>
-        <span class="text-zinc-900 font-medium">{dirName()}</span>
-      </div>
-
-      <PageHeader
-        title={dirName()}
-        action={
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={uploading()}
-            onClick={() => fileInputRef?.click()}
+    <div class="max-w-4xl mx-auto px-8 pb-8">
+      <div class="sticky top-0 bg-zinc-50 z-10 pt-8 pb-4">
+        <div class="flex items-center gap-2 mb-2 text-sm text-zinc-500">
+          <button
+            class="flex items-center gap-1 hover:text-zinc-900 transition-colors"
+            onClick={props.onBack}
           >
-            <UploadIcon />
-            {uploading() ? "アップロード中..." : "アップロード"}
-          </Button>
-        }
-      />
+            <ChevronLeftIcon />
+            ディレクトリ
+          </button>
+          <span>/</span>
+          <span class="text-zinc-900 font-medium">{dirName()}</span>
+        </div>
+
+        <PageHeader
+          title={dirName()}
+          class="mb-0"
+          action={
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={uploading()}
+              onClick={() => fileInputRef?.click()}
+            >
+              <UploadIcon />
+              {uploading() ? "アップロード中..." : "アップロード"}
+            </Button>
+          }
+        />
+      </div>
 
       <input
         ref={fileInputRef}

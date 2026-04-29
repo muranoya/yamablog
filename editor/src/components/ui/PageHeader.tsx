@@ -10,7 +10,7 @@ interface Props {
 
 export function PageHeader(props: Props) {
   return (
-    <div class={`flex items-start justify-between mb-6 ${props.class ?? ""}`}>
+    <div class={`flex items-start justify-between ${props.class ?? "mb-6"}`}>
       <div>
         <h1 class="text-xl font-bold tracking-tight text-zinc-900">{props.title}</h1>
         <Show when={props.subtitle}>

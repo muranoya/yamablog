@@ -1,12 +1,12 @@
 import { createMemo, createSignal, Show } from "solid-js";
 import type { JSX } from "solid-js";
-import { getPublicImageUrl } from "../../lib/r2";
-import { getImageByUuid } from "../../store/files";
+import { getPublicImageUrl } from "../../lib/s3";
 import { Lightbox } from "../ui/Lightbox";
 import { ImageIcon, PencilIcon, EyeIcon } from "../icons";
 
 interface Props {
   imageUuid: string | null;
+  shootingDatetime: number | null;
   description: string;
   onDescriptionChange: (desc: string) => void;
   onSelectFile: () => void;
@@ -41,15 +41,7 @@ export default function ImageBlock(props: Props) {
     return getPublicImageUrl(props.imageUuid, "original");
   });
 
-  const dbImage = createMemo(() => {
-    if (!props.imageUuid) return null;
-    return getImageByUuid(props.imageUuid) ?? null;
-  });
-
-  const shootingDatetime = createMemo(() => {
-    const img = dbImage();
-    return img ? formatShootingDatetime(img.shooting_datetime) : null;
-  });
+  const shootingDatetime = () => formatShootingDatetime(props.shootingDatetime);
 
   const handleImgError: JSX.EventHandler<HTMLImageElement, Event> = (e) => {
     const fb = fallbackUrl();
