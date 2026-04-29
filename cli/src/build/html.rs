@@ -36,8 +36,8 @@ mod tests {
         let tera = create_tera().unwrap();
         let mut ctx = Context::new();
         ctx.insert("blog_name", "Test Blog");
-        ctx.insert("sidebar_panels", &Vec::<serde_json::Value>::new());
         ctx.insert("categories", &Vec::<serde_json::Value>::new());
+        ctx.insert("categories_with_counts", &Vec::<serde_json::Value>::new());
         ctx.insert("monthly_counts", &Vec::<serde_json::Value>::new());
         ctx.insert("articles", &Vec::<serde_json::Value>::new());
         ctx.insert("page_number", &1u32);

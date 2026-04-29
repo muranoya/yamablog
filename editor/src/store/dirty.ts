@@ -1,15 +1,6 @@
-import { createSignal } from "solid-js";
-
-const [dirtyPaths, setDirtyPaths] = createSignal<string[]>([]);
-
-export function markDirty(path: string) {
-  setDirtyPaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
-}
-
-export function getDirtyFiles(): Set<string> {
-  return new Set(dirtyPaths());
-}
-
-export function clearDirty() {
-  setDirtyPaths([]);
-}
+// Removed: dirty tracking replaced by immediate DB writes.
+// This file kept as a stub to avoid import errors during migration.
+export function markDirty(_path: string) {}
+export function getDirtyFiles(): Set<string> { return new Set(); }
+export function renameDirtyPath(_old: string, _new: string) {}
+export function clearDirty() {}

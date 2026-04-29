@@ -1,33 +1,21 @@
-import { createSignal } from "solid-js";
-
 interface Props {
   text: string;
   onChange: (text: string) => void;
 }
 
 export default function TextBlock(props: Props) {
-  const [editing, setEditing] = createSignal(false);
-
   return (
-    <div class="border border-gray-200 rounded-lg p-3 bg-white">
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-medium text-gray-500 uppercase tracking-wide">テキスト</span>
-        <button
-          onClick={() => setEditing(!editing())}
-          class="text-xs text-blue-600 hover:underline"
-        >
-          {editing() ? "完了" : "編集"}
-        </button>
-      </div>
-      {editing() ? (
-        <textarea
-          class="w-full h-48 font-mono text-sm border border-gray-200 rounded p-2 resize-y"
-          value={props.text}
-          onInput={(e) => props.onChange(e.currentTarget.value)}
-        />
-      ) : (
-        <pre class="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{props.text}</pre>
-      )}
+    <div class="border-l-4 border-zinc-200 px-4 py-3">
+      <p class="text-[10px] font-semibold uppercase tracking-widest text-zinc-400 mb-2">
+        テキスト
+      </p>
+      <textarea
+        draggable={false}
+        class="w-full min-h-[160px] font-mono text-sm text-zinc-700 bg-transparent border-none outline-none resize-y placeholder:text-zinc-300 focus:outline-none"
+        value={props.text}
+        onInput={(e) => props.onChange(e.currentTarget.value)}
+        placeholder="Markdownで入力..."
+      />
     </div>
   );
 }

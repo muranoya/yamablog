@@ -1,11 +1,11 @@
 import ExifReader from "exifreader";
 
 export interface ProcessedImage {
-  small: Blob;    // 300px幅
-  medium: Blob;   // 1024px幅
-  original: Blob; // 元サイズ（WebP変換のみ）
-  smallSize: { width: number; height: number };
-  mediumSize: { width: number; height: number };
+  small: Blob | undefined;    // original > 300px のときのみ生成
+  medium: Blob | undefined;   // original > 1024px のときのみ生成
+  original: Blob;
+  smallSize: { width: number; height: number } | undefined;
+  mediumSize: { width: number; height: number } | undefined;
   originalSize: { width: number; height: number };
   shootingDatetime: string | null;
 }
@@ -15,13 +15,16 @@ export async function processImage(file: File): Promise<ProcessedImage> {
   const img = await loadImage(file);
 
   const originalSize = { width: img.naturalWidth, height: img.naturalHeight };
-  const mediumSize = calcResizeTarget(img.naturalWidth, img.naturalHeight, 1024);
-  const smallSize = calcResizeTarget(img.naturalWidth, img.naturalHeight, 300);
+  const needsSmall = img.naturalWidth > 300;
+  const needsMedium = img.naturalWidth > 1024;
 
-  const [original, medium, small] = await Promise.all([
+  const smallSize = needsSmall ? calcResizeTarget(img.naturalWidth, img.naturalHeight, 300) : undefined;
+  const mediumSize = needsMedium ? calcResizeTarget(img.naturalWidth, img.naturalHeight, 1024) : undefined;
+
+  const [original, small, medium] = await Promise.all([
     resizeToWebp(img, originalSize.width, originalSize.height),
-    resizeToWebp(img, mediumSize.width, mediumSize.height),
-    resizeToWebp(img, smallSize.width, smallSize.height),
+    smallSize ? resizeToWebp(img, smallSize.width, smallSize.height) : Promise.resolve(undefined),
+    mediumSize ? resizeToWebp(img, mediumSize.width, mediumSize.height) : Promise.resolve(undefined),
   ]);
 
   return { small, medium, original, smallSize, mediumSize, originalSize, shootingDatetime };

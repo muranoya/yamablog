@@ -1,11 +1,60 @@
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset};
 use geo_types::Coord;
+use rayon::prelude::*;
+use std::collections::HashMap;
 use std::path::Path;
 
 pub struct GpxTrack {
     pub bbox: BoundingBox,
     pub points: Vec<TrackPoint>,
+}
+
+pub struct GpxStats {
+    pub start_at: Option<i64>,
+    pub end_at: Option<i64>,
+    pub distance_m: f64,
+    pub cum_climb_m: f64,
+    pub cum_down_m: f64,
+    pub max_elevation_m: f64,
+    pub min_elevation_m: f64,
+}
+
+pub fn calc_stats(points: &[TrackPoint]) -> GpxStats {
+    let start_at = points.first().and_then(|p| p.time).map(|t| t.timestamp());
+    let end_at = points.last().and_then(|p| p.time).map(|t| t.timestamp());
+
+    let mut distance_m = 0.0_f64;
+    let mut cum_climb_m = 0.0_f64;
+    let mut cum_down_m = 0.0_f64;
+    let mut max_elev = f64::NEG_INFINITY;
+    let mut min_elev = f64::INFINITY;
+
+    let mut prev: Option<&TrackPoint> = None;
+    for p in points {
+        if let Some(pp) = prev {
+            distance_m += haversine_m(pp.lat, pp.lng, p.lat, p.lng);
+            if let (Some(pe), Some(e)) = (pp.elevation, p.elevation) {
+                let diff = e - pe;
+                if diff > 0.0 { cum_climb_m += diff; } else { cum_down_m += -diff; }
+            }
+        }
+        if let Some(e) = p.elevation {
+            max_elev = max_elev.max(e);
+            min_elev = min_elev.min(e);
+        }
+        prev = Some(p);
+    }
+
+    GpxStats {
+        start_at,
+        end_at,
+        distance_m,
+        cum_climb_m,
+        cum_down_m,
+        max_elevation_m: if max_elev.is_infinite() { 0.0 } else { max_elev },
+        min_elevation_m: if min_elev.is_infinite() { 0.0 } else { min_elev },
+    }
 }
 
 pub struct BoundingBox {
@@ -28,6 +77,7 @@ pub struct ImageInfo {
     pub datetime: DateTime<FixedOffset>,
     pub file_id: String,
     pub description: Option<String>,
+    pub small_src: String,
 }
 
 #[derive(serde::Serialize)]
@@ -37,6 +87,28 @@ pub struct PinPoint {
     pub file_id: String,
     pub description: Option<String>,
     pub datetime: String,
+    pub small_src: String,
+}
+
+/// 全公開記事の GPX ファイルを並列パースして filename → GpxTrack の Map を返す。
+pub fn load_all_gpx_tracks(
+    published: &[&crate::schema::manifest::ManifestArticlesItem],
+    gpx_dir: &Path,
+) -> HashMap<String, GpxTrack> {
+    published
+        .par_iter()
+        .filter_map(|a| {
+            let filename = a.gpx_file_id.as_deref()?;
+            let path = gpx_dir.join(filename);
+            match read_and_parse_gpx(&path) {
+                Ok(track) => Some((filename.to_string(), track)),
+                Err(e) => {
+                    eprintln!("Warning: skipping GPX {}: {}", filename, e);
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 pub fn read_and_parse_gpx(path: &Path) -> Result<GpxTrack> {
@@ -203,6 +275,7 @@ pub fn match_pins(images: &[ImageInfo], track: &GpxTrack) -> Vec<PinPoint> {
                 file_id: img.file_id.clone(),
                 description: img.description.clone(),
                 datetime: img.datetime.to_rfc3339(),
+                small_src: img.small_src.clone(),
             });
         }
     }

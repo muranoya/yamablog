@@ -1,11 +1,29 @@
 export interface R2Config {
-  endpointUrl: string;
+  endpointUrl?: string;
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
+  publicUrl?: string;
 }
 
 const STORAGE_KEY = "yamablog_r2_config";
+const PUBLIC_CONFIG_KEY = "yamablog_r2_public_config";
+
+export function savePublicConfig(config: Partial<R2Config>): void {
+  const { secretAccessKey: _s, ...pub } = config as R2Config;
+  localStorage.setItem(PUBLIC_CONFIG_KEY, JSON.stringify(pub));
+}
+
+export function loadPublicConfig(): Partial<R2Config> {
+  const raw = localStorage.getItem(PUBLIC_CONFIG_KEY);
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+export function clearR2Config(): void {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(PUBLIC_CONFIG_KEY);
+}
 
 export async function saveR2Config(config: R2Config, passphrase: string): Promise<void> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -20,6 +38,7 @@ export async function saveR2Config(config: R2Config, passphrase: string): Promis
     data: bufToBase64(new Uint8Array(ciphertext)),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  savePublicConfig(config);
 }
 
 export async function loadR2Config(passphrase: string): Promise<R2Config | null> {
@@ -66,4 +85,18 @@ function bufToBase64(buf: Uint8Array): string {
 
 function base64ToBuf(b64: string): Uint8Array {
   return new Uint8Array(atob(b64).split("").map((c) => c.charCodeAt(0)));
+}
+
+const LAST_DATA_DIR_KEY = "yamablog_last_data_dir";
+
+export function saveLastDataDir(dir: string): void {
+  localStorage.setItem(LAST_DATA_DIR_KEY, dir);
+}
+
+export function getLastDataDir(): string | null {
+  return localStorage.getItem(LAST_DATA_DIR_KEY);
+}
+
+export function clearLastDataDir(): void {
+  localStorage.removeItem(LAST_DATA_DIR_KEY);
 }

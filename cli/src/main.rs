@@ -16,8 +16,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Build {
-        #[arg(long, default_value = "data")]
-        data_dir: PathBuf,
+        #[arg(long, default_value = "blog.sqlite3")]
+        db: PathBuf,
+
+        #[arg(long, default_value = "data/gpx")]
+        gpx_dir: PathBuf,
 
         #[arg(long, default_value = "dist")]
         output_dir: PathBuf,
@@ -31,17 +34,13 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Build {
-            data_dir,
+            db,
+            gpx_dir,
             output_dir,
             blog_dist,
         } => {
-            let blog_dist = blog_dist.unwrap_or_else(|| {
-                data_dir
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .join("blog/dist")
-            });
-            build::run(&data_dir, &output_dir, &blog_dist)?;
+            let blog_dist = blog_dist.unwrap_or_else(|| PathBuf::from("blog/dist"));
+            build::run(&db, &gpx_dir, &output_dir, &blog_dist)?;
         }
     }
     Ok(())

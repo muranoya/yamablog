@@ -1,62 +1,104 @@
 import { createStore } from "solid-js/store";
-import { markDirty } from "./dirty";
+import { invoke } from "@tauri-apps/api/core";
+import { getManifest } from "./manifest";
 
-export interface ContentBlock {
-  kind: "text" | "image" | "gpx" | "binary";
-  content: Record<string, unknown>;
+export interface ArticleBlock {
+  kind: "text" | "image" | "gpx";
+  text_content: string;
+  image_id: number | null;
+  image_uuid: string | null;
+  description: string;
+  gpx_filename: string;
 }
 
-export interface ArticleData {
-  id: string;
-  content: ContentBlock[];
+const [blocksStore, setBlocksStore] = createStore<Record<string, ArticleBlock[]>>({});
+const loadedSet = new Set<number>();
+
+export function getArticleBlocks(articleId: number): ArticleBlock[] | undefined {
+  return blocksStore[articleId];
 }
 
-const articleCache = new Map<string, ReturnType<typeof createStore<ArticleData>>>();
-let articleFileMap = new Map<string, File>();
-
-export function setArticleFileMap(map: Map<string, File>) {
-  articleFileMap = map;
+export function isArticleLoaded(articleId: number): boolean {
+  return loadedSet.has(articleId);
 }
 
-export function getArticleFile(id: string): File | undefined {
-  return articleFileMap.get(id);
+export function setArticleBlocks(articleId: number, blocks: ArticleBlock[]): void {
+  setBlocksStore(articleId.toString(), blocks);
+  loadedSet.add(articleId);
 }
 
-export function getArticleStore(id: string): ArticleData | undefined {
-  return articleCache.get(id)?.[0];
+function toUpsertInput(block: ArticleBlock) {
+  return {
+    kind: block.kind,
+    text_content: block.kind === "text" ? block.text_content : null,
+    image_id: block.kind === "image" ? block.image_id : null,
+    description: block.kind === "image" ? block.description : null,
+    gpx_filename: block.kind === "gpx" ? block.gpx_filename : null,
+  };
 }
 
-export function loadArticle(id: string, article: ArticleData) {
-  if (!articleCache.has(id)) {
-    articleCache.set(id, createStore<ArticleData>(article));
-  }
+async function saveArticle(articleId: number): Promise<void> {
+  const article = getManifest()?.articles.find((a) => a.id === articleId);
+  if (!article) return;
+  const blocks = blocksStore[articleId] ?? [];
+  await invoke("db_upsert_article", {
+    input: {
+      id: articleId,
+      slug: article.slug,
+      title: article.title,
+      status: article.status,
+      thumbnail_image_id: article.thumbnail_image_id ?? null,
+      gpx_filename: article.gpx_filename ?? null,
+      created_at: article.created_at,
+      category_ids: article.category_ids,
+      blocks: blocks.map(toUpsertInput),
+    },
+  });
+}
+
+export async function saveArticleMetadata(articleId: number): Promise<void> {
+  await saveArticle(articleId);
+}
+
+let saveTimer: number | null = null;
+function debouncedSave(articleId: number) {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveArticle(articleId).catch(console.error);
+    saveTimer = null;
+  }, 300);
 }
 
 export function updateBlock(
-  articleId: string,
-  blockIndex: number,
-  contentUpdate: Record<string, unknown>
-) {
-  const store = articleCache.get(articleId);
-  if (!store) return;
-  store[1]("content", blockIndex, "content", contentUpdate as any);
-  markDirty(`articles/${articleId}.json`);
+  articleId: number,
+  index: number,
+  update: Partial<ArticleBlock>,
+  immediate = false
+): void {
+  const key = articleId.toString();
+  setBlocksStore(key, index, update as any);
+  if (immediate) saveArticle(articleId).catch(console.error);
+  else debouncedSave(articleId);
 }
 
-export function addBlock(articleId: string, block: ContentBlock) {
-  const store = articleCache.get(articleId);
-  if (!store) return;
-  store[1]("content", (prev) => [...prev, block]);
-  markDirty(`articles/${articleId}.json`);
+export function addBlock(articleId: number, block: ArticleBlock): void {
+  const key = articleId.toString();
+  setBlocksStore(key, (prev) => [...(prev ?? []), block]);
+  saveArticle(articleId).catch(console.error);
 }
 
-export function removeBlock(articleId: string, blockIndex: number) {
-  const store = articleCache.get(articleId);
-  if (!store) return;
-  store[1]("content", (prev) => prev.filter((_, i) => i !== blockIndex));
-  markDirty(`articles/${articleId}.json`);
+export function removeBlock(articleId: number, index: number): void {
+  const key = articleId.toString();
+  setBlocksStore(key, (prev) => prev.filter((_, i) => i !== index));
+  saveArticle(articleId).catch(console.error);
 }
 
-export function getArticleData(id: string): ArticleData | undefined {
-  return articleCache.get(id)?.[0];
+export function moveBlock(articleId: number, from: number, to: number): void {
+  const blocks = blocksStore[articleId];
+  if (!blocks || from < 0 || to < 0 || from >= blocks.length || to >= blocks.length) return;
+  const next = [...blocks];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  setBlocksStore(articleId.toString(), next);
+  saveArticle(articleId).catch(console.error);
 }

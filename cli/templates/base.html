@@ -15,31 +15,23 @@
   </main>
   <aside id="sidebar">
     <div class="sidebar-inner">
-    {% for panel in sidebar_panels %}
-      {% if panel.visible %}
-        {% if panel.kind == "gpx_map" %}
-          <div id="gpx-map" data-map-data-url="/map-data.json"></div>
-        {% elif panel.kind == "categories" %}
-          <section class="sidebar-categories">
-            <h2>カテゴリ</h2>
-            <ul>
-            {% for cat in categories_with_counts %}
-              <li><a href="/categories/{{ cat.id }}/">{{ cat.name }}({{ cat.count }})</a></li>
-            {% endfor %}
-            </ul>
-          </section>
-        {% elif panel.kind == "monthly" %}
-          <section class="sidebar-monthly">
-            <h2>月別</h2>
-            <ul>
-            {% for m in monthly_counts %}
-              <li><a href="/archives/{{ m.month }}/"> {{ m.month }}月 ({{ m.count }})</a></li>
-            {% endfor %}
-            </ul>
-          </section>
-        {% endif %}
-      {% endif %}
-    {% endfor %}
+      <div id="gpx-map" data-map-data-url="/map-data.json"></div>
+      <section class="sidebar-categories">
+        <h2>カテゴリ</h2>
+        <ul>
+        {% for cat in categories_with_counts %}
+          <li><a href="/categories/{{ cat.id }}/">{{ cat.name }}({{ cat.count }})</a></li>
+        {% endfor %}
+        </ul>
+      </section>
+      <section class="sidebar-monthly">
+        <h2>月別</h2>
+        <ul>
+        {% for m in monthly_counts %}
+          <li><a href="/archives/{{ m.month }}/"> {{ m.month }}月 ({{ m.count }})</a></li>
+        {% endfor %}
+        </ul>
+      </section>
     </div>
   </aside>
   <script src="/{{ bundle_js | safe }}"></script>

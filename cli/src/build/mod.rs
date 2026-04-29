@@ -71,18 +71,16 @@ fn fmt_duration(d: std::time::Duration) -> String {
     }
 }
 
-pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
+pub fn run(db_path: &Path, gpx_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
     use std::time::Instant;
 
     let total_start = Instant::now();
     let preprocess_start = Instant::now();
 
-    println!("Loading data from {}...", data_dir.display());
+    println!("Loading data from {}...", db_path.display());
     let t = Instant::now();
-    let blog = load_blog_data(data_dir)?;
+    let blog = load_blog_data(db_path)?;
     println!("  Loaded data [{}]", fmt_duration(t.elapsed()));
-
-    let gpx_dir = data_dir.join("gpx");
 
     let t = Instant::now();
     let bundle = load_blog_bundle(blog_dist)?;
@@ -91,10 +89,6 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
     let t = Instant::now();
     let tera = html::create_tera()?;
     println!("  Initialized templates [{}]", fmt_duration(t.elapsed()));
-
-    let t = Instant::now();
-    let gpx_date_map = build_gpx_date_map(&blog.files);
-    println!("  Built GPX date map [{}]", fmt_duration(t.elapsed()));
 
     let t = Instant::now();
     let file_index = build_file_index(&blog.files);
@@ -111,9 +105,16 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
     println!("  Sorted articles [{}]", fmt_duration(t.elapsed()));
 
     let t = Instant::now();
+    let gpx_cache = gpx::load_all_gpx_tracks(&published, &gpx_dir);
+    println!("  Parsed GPX tracks [{}]", fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
+    let gpx_date_map = build_gpx_date_map(&gpx_cache);
+    println!("  Built GPX date map [{}]", fmt_duration(t.elapsed()));
+
+    let t = Instant::now();
     let monthly_counts = calc_monthly_counts(&published, &gpx_date_map);
     let blog_name = &blog.manifest.blog.name;
-    let sidebar_panels = &blog.manifest.blog.sidebar.panels;
     let categories = &blog.manifest.categories;
     let categories_with_counts = calc_category_counts(&published, categories);
     println!("  Calculated counts [{}]", fmt_duration(t.elapsed()));
@@ -121,7 +122,6 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
     let build_ctx = || -> Result<Context> {
         let mut ctx = Context::new();
         ctx.insert("blog_name", blog_name);
-        ctx.insert("sidebar_panels", sidebar_panels);
         ctx.insert("categories", categories);
         ctx.insert("categories_with_counts", &categories_with_counts);
         ctx.insert("monthly_counts", &monthly_counts);
@@ -143,7 +143,7 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
         let articles_vals: Vec<serde_json::Value> = page
             .items
             .iter()
-            .map(|a| article_summary_to_value(a, categories, &gpx_date_map))
+            .map(|a| article_summary_to_value(a, categories, &gpx_date_map, &file_index))
             .collect();
         ctx.insert("articles", &articles_vals);
         ctx.insert("page_number", &page.page_number);
@@ -174,7 +174,7 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
                 let content_blocks = build_content_blocks(
                     article,
                     &file_index,
-                    &gpx_dir,
+                    &gpx_cache,
                     &blog.manifest.map_memos,
                 )?;
                 let article_category_names: Vec<String> = article_summary
@@ -205,12 +205,15 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
     }
 
     // --- Category pages ---
-    for cat in &blog.manifest.categories {
+    let mut sorted_categories: Vec<&crate::schema::manifest::ManifestCategoriesItem> =
+        blog.manifest.categories.iter().collect();
+    sorted_categories.sort_by_key(|c| c.priority);
+    for cat in &sorted_categories {
         let cat_id_str = cat.id.to_string();
         let cat_articles: Vec<serde_json::Value> = published
             .iter()
             .filter(|a| a.category_ids.iter().any(|cid| cid.as_str() == cat_id_str))
-            .map(|a| article_summary_to_value(a, categories, &gpx_date_map))
+            .map(|a| article_summary_to_value(a, categories, &gpx_date_map, &file_index))
             .collect();
 
         let cat_pages = pagination::paginate(&cat_articles, pagination::ARTICLES_PER_PAGE);
@@ -245,11 +248,12 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
             .iter()
             .filter(|a| {
                 a.gpx_file_id
-                    .and_then(|id| gpx_date_map.get(&id))
+                    .as_deref()
+                    .and_then(|name| gpx_date_map.get(name))
                     .map(|d| d.month() == m.month)
                     .unwrap_or(false)
             })
-            .map(|a| article_summary_to_value(a, categories, &gpx_date_map))
+            .map(|a| article_summary_to_value(a, categories, &gpx_date_map, &file_index))
             .collect();
 
         let mut ctx = build_ctx()?;
@@ -263,8 +267,7 @@ pub fn run(data_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
 
     // --- map-data.json ---
     let t = Instant::now();
-    let gpx_tracks = map_data::collect_gpx_tracks(&published, &blog.files, &gpx_dir);
-    let map_data_out = map_data::build_map_data(&blog.manifest.map_memos, &gpx_tracks);
+    let map_data_out = map_data::build_map_data(&blog.manifest.map_memos, &published, &gpx_cache, &file_index);
     let map_data_json = serde_json::to_string(&map_data_out)?;
     write_file(output_dir, "map-data.json", &map_data_json)?;
     println!("  Generated: map-data.json [{}]", fmt_duration(t.elapsed()));
@@ -299,28 +302,29 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn sample_data_dir() -> PathBuf {
+    fn project_root() -> PathBuf {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        PathBuf::from(manifest_dir).join("..").join("data")
+        PathBuf::from(manifest_dir).join("..")
     }
 
     fn sample_blog_dist() -> PathBuf {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        PathBuf::from(manifest_dir).join("..").join("blog/dist")
+        project_root().join("blog/dist")
     }
 
     #[test]
     fn test_dry_run_build() {
-        let data_dir = sample_data_dir();
-        if !data_dir.join("manifest.json").exists() {
+        let root = project_root();
+        let db_path = root.join("blog.sqlite3");
+        if !db_path.exists() {
             return;
         }
+        let gpx_dir = root.join("data/gpx");
         let blog_dist = sample_blog_dist();
         if !blog_dist.join(".vite/manifest.json").exists() {
             return;
         }
         let output_dir = std::env::temp_dir().join("yamablog-test-output");
-        run(&data_dir, &output_dir, &blog_dist).expect("build should succeed");
+        run(&db_path, &gpx_dir, &output_dir, &blog_dist).expect("build should succeed");
 
         assert!(
             output_dir.join("index.html").exists(),

@@ -450,7 +450,7 @@ figure img {
 
 figcaption {
   color: var(--color-text);
-  text-align: center;
+  text-align: left;
   margin-top: 0.5rem;
   line-height: 1.5;
 }

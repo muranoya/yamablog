@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "description": "yamablog editor permissions",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "fs:allow-read-text-file",
+    "fs:allow-read-dir",
+    "fs:scope-home-recursive"
+  ]
+}

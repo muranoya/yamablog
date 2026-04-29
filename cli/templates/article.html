@@ -18,8 +18,8 @@
     {% elif block.kind == "image" %}
       <figure{% if block.medium_width %} style="max-width: {{ block.medium_width }}px"{% endif %}>
         <img
-          src="/images/{{ block.file_id }}-medium.webp"
-          alt="{{ block.description }}"
+          src="{{ block.medium_src }}"
+          alt="{{ block.description | default(value='') }}"
           loading="lazy"
           data-original-src="{{ block.original_src }}"
           class="lightbox-trigger"
@@ -29,8 +29,8 @@
         {% if block.shooting_datetime %}
           <p class="image-datetime">撮影日時: {{ block.shooting_datetime | safe }}</p>
         {% endif %}
-        {% if block.description %}
-          <figcaption>{{ block.description }}</figcaption>
+        {% if block.description_html %}
+          <figcaption>{{ block.description_html | safe }}</figcaption>
         {% endif %}
       </figure>
     {% elif block.kind == "gpx" %}

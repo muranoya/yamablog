@@ -1,13 +1,10 @@
 /cli/target/
-/editor/node_modules/
-/editor/dist/
-/editor/src/types/
+/editor/src-tauri/target/
 /blog/node_modules/
 /blog/dist/
-/user_files/
-/data/
 /preview/
-/images/
-/tools/__pycache__
 .playwright-mcp/
 .claude/
+*.swp
+*.sqlite3-shm
+*.sqlite3-wal

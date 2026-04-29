@@ -26,6 +26,7 @@ interface PinPoint {
   file_id: string
   description?: string
   datetime: string
+  small_src: string
 }
 
 interface BboxData {
@@ -50,6 +51,7 @@ interface MapMemo {
   lng: number
   memo: string
   image_id?: string
+  image_small_src?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +187,7 @@ function buildCameraPopup(pin: PinPoint): HTMLElement {
   el.className = 'pin-popup'
 
   const img = document.createElement('img')
-  img.src = `/images/${pin.file_id}-small.webp`
+  img.src = pin.small_src
   img.alt = pin.description ?? ''
   img.className = 'pin-popup-thumb'
   img.dataset.lightboxSrc = `/images/${pin.file_id}-original.webp`
@@ -221,12 +223,12 @@ function buildMemoPopup(memo: MapMemo): HTMLElement {
   kindLabel.textContent = memoKindName(memo.kind)
   el.appendChild(kindLabel)
 
-  if (memo.image_id) {
+  if (memo.image_small_src) {
     const img = document.createElement('img')
-    img.src = `/images/${memo.image_id}-small.webp`
+    img.src = memo.image_small_src
     img.alt = memo.memo
     img.className = 'pin-popup-thumb'
-    img.dataset.lightboxSrc = `/images/${memo.image_id}-original.webp`
+    img.dataset.lightboxSrc = memo.image_id ? `/images/${memo.image_id}-original.webp` : memo.image_small_src
     el.appendChild(img)
   }
 

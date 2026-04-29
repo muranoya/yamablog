@@ -1,3 +1,12 @@
+export function parseGpxPolyline(xml: string): [number, number][] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, "application/xml");
+  return Array.from(doc.querySelectorAll("trkpt")).map((pt) => [
+    parseFloat(pt.getAttribute("lat") ?? "0"),
+    parseFloat(pt.getAttribute("lon") ?? "0"),
+  ]);
+}
+
 export interface GpxStats {
   start_at: string | null;
   end_at: string | null;

@@ -1,0 +1,19 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    resolver 8.8.8.8 ipv6=off valid=300s;
+
+    location /images/ {
+        proxy_pass ${IMAGES_CDN_URL}/images/;
+        proxy_ssl_server_name on;
+        proxy_set_header Host ${IMAGES_CDN_HOST};
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
