@@ -8,25 +8,31 @@ on:
       - 'editor/**'
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-
+  build:
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-24.04
+            rust-targets: ''
+            tauri-args: '--bundles appimage'
+          - platform: macos-latest
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            tauri-args: '--bundles dmg --target universal-apple-darwin'
+          - platform: windows-latest
+            rust-targets: ''
+            tauri-args: '--bundles nsis'
+
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version
-        id: version
-        run: |
-          VERSION=$(grep '^version' editor/src-tauri/Cargo.toml \
-            | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=editor-v${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Linux system dependencies for Tauri v2
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -47,23 +53,24 @@ jobs:
           cache-dependency-path: editor/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'editor/src-tauri -> target'
-          key: editor-release
+          key: ${{ matrix.platform }}-release
 
-      - uses: extractions/setup-just@v2
+      - name: Install frontend dependencies
+        working-directory: editor
+        run: pnpm install --frozen-lockfile
 
-      - name: Build editor
-        run: just build-editor
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "yamablog editor ${{ steps.version.outputs.tag }}"
-          generate_release_notes: true
-          files: |
-            editor/src-tauri/target/release/bundle/deb/*.deb
-            editor/src-tauri/target/release/bundle/appimage/*.AppImage
+          projectPath: editor
+          tagName: editor-v__VERSION__
+          releaseName: 'yamablog editor v__VERSION__'
+          generateReleaseNotes: true
+          args: ${{ matrix.tauri-args }}
