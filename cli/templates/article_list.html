@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{% if page_number > 1 %}記事一覧 - {{ page_number }}ページ目 | {{ blog_name }}{% else %}{{ blog_name }}{% endif %}{% endblock %}
+{% block description %}{% if page_number > 1 %}記事一覧 {{ page_number }}ページ目 - {% endif %}{{ blog_name }}の山行記録・GPX軌跡と写真{% endblock %}
 {% block content %}
 <h2>記事一覧{% if page_number > 1 %} ({{ page_number }}ページ目){% endif %}</h2>
 <div class="article-grid">

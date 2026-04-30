@@ -29,6 +29,7 @@ mod tests {
         assert!(tera.get_template_names().any(|n| n == "base.html"));
         assert!(tera.get_template_names().any(|n| n == "article_list.html"));
         assert!(tera.get_template_names().any(|n| n == "article.html"));
+        assert!(tera.get_template_names().any(|n| n == "not_found.html"));
     }
 
     #[test]

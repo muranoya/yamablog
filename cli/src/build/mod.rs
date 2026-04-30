@@ -272,6 +272,13 @@ pub fn run(db_path: &Path, gpx_dir: &Path, output_dir: &Path, blog_dist: &Path) 
     write_file(output_dir, "map-data.json", &map_data_json)?;
     println!("  Generated: map-data.json [{}]", fmt_duration(t.elapsed()));
 
+    // --- 404 Not Found page ---
+    let t = Instant::now();
+    let ctx = build_ctx()?;
+    let html_str = html::render(&tera, "not_found.html", &ctx)?;
+    write_file(output_dir, "404.html", &html_str)?;
+    println!("  Generated: 404.html [{}]", fmt_duration(t.elapsed()));
+
     let t = Instant::now();
     write_file(output_dir, &bundle.css_path, &bundle.css_content)?;
     println!("  Generated: {} [{}]", bundle.css_path, fmt_duration(t.elapsed()));

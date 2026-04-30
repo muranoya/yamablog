@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - 'data/**'
+      - 'cli/**'
+      - 'blog/**'
   workflow_dispatch:
 
 jobs:

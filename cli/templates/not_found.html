@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}ページが見つかりません | {{ blog_name }}{% endblock %}
+{% block description %}ページが見つかりません - {{ blog_name }}{% endblock %}
+{% block content %}
+<div class="not-found">
+  <p class="not-found-code">404</p>
+  <h2 class="not-found-heading">ページが見つかりません</h2>
+  <p class="not-found-message">
+    お探しのページは移動または削除された可能性があります。
+  </p>
+  <a class="not-found-home" href="/">記事一覧へ戻る</a>
+</div>
+{% endblock %}

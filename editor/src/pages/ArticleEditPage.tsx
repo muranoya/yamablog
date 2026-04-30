@@ -42,6 +42,7 @@ type FilePickerTarget = "thumbnail" | "gpx_meta" | { blockIndex: number };
 export default function ArticleEditPage(props: Props) {
   const [loaded, setLoaded] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [saveState, setSaveState] = createSignal<"idle" | "saving" | "saved" | "error">("idle");
   const [showFilePicker, setShowFilePicker] = createSignal(false);
   const [showImageBatchPicker, setShowImageBatchPicker] = createSignal(false);
   const [filePickerKind, setFilePickerKind] = createSignal<"image" | "gpx">("image");
@@ -113,6 +114,19 @@ export default function ArticleEditPage(props: Props) {
     setShowFilePicker(false);
   }
 
+  async function handleSave() {
+    setSaveState("saving");
+    try {
+      await saveArticle(props.articleId);
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 2000);
+    } catch (e) {
+      setError("保存に失敗しました");
+      setSaveState("error");
+      setTimeout(() => setSaveState("idle"), 3000);
+    }
+  }
+
   function handleToggleCategory(categoryId: number) {
     const current = meta()?.category_ids ?? [];
     const updated = current.includes(categoryId)
@@ -177,8 +191,14 @@ export default function ArticleEditPage(props: Props) {
             <ChevronLeftIcon />
             記事一覧
           </Button>
-          <Button variant="primary" size="sm" onClick={() => saveArticle(props.articleId).catch(console.error)}>
-            保存
+          <Button
+            variant={saveState() === "saved" ? "ghost" : saveState() === "error" ? "ghost" : "primary"}
+            size="sm"
+            disabled={saveState() === "saving"}
+            class={saveState() === "saved" ? "text-emerald-600" : saveState() === "error" ? "text-red-500" : ""}
+            onClick={handleSave}
+          >
+            {saveState() === "saving" ? "保存中..." : saveState() === "saved" ? "保存済み ✓" : saveState() === "error" ? "エラー" : "保存"}
           </Button>
         </div>
 

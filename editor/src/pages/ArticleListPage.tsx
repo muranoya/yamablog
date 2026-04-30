@@ -20,15 +20,21 @@ type Filter = "all" | "published" | "draft";
 export default function ArticleListPage() {
   const [editingId, setEditingId] = createSignal<number | null>(null);
   const [filter, setFilter] = createSignal<Filter>("all");
+  const [searchQuery, setSearchQuery] = createSignal("");
+
+  const categoryMap = () =>
+    new Map(getManifest()?.categories.map((c) => [c.id, c.name]) ?? []);
 
   const allArticles = () =>
     [...(getManifest()?.articles ?? [])].sort((a, b) => b.created_at - a.created_at);
 
   const filteredArticles = () => {
     const f = filter();
-    const articles = allArticles();
-    if (f === "all") return articles;
-    return articles.filter((a) => a.status === f);
+    const q = searchQuery().trim().toLowerCase();
+    let articles = allArticles();
+    if (f !== "all") articles = articles.filter((a) => a.status === f);
+    if (q) articles = articles.filter((a) => a.title.toLowerCase().includes(q));
+    return articles;
   };
 
   async function handleNewArticle() {
@@ -106,6 +112,16 @@ export default function ArticleListPage() {
             ))}
           </div>
 
+          <div class="mb-4">
+            <input
+              type="search"
+              class="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 bg-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="タイトルで検索..."
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+            />
+          </div>
+
           <Show
             when={filteredArticles().length > 0}
             fallback={
@@ -146,6 +162,17 @@ export default function ArticleListPage() {
                           {article.status === "published" ? "公開済み" : "下書き"}
                         </Badge>
                       </div>
+                      <Show when={article.category_ids.length > 0}>
+                        <div class="flex items-center gap-1 flex-wrap mt-1">
+                          <For each={article.category_ids}>
+                            {(cid) => (
+                              <Show when={categoryMap().get(cid)}>
+                                {(name) => <Badge>{name()}</Badge>}
+                              </Show>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
                       <p class="text-xs text-zinc-400 mt-0.5 font-mono">
                         {new Date(article.created_at * 1000).toISOString().substring(0, 10)}
                         {" "}· {article.slug}

@@ -13,6 +13,8 @@ server {
         proxy_set_header Host ${IMAGES_CDN_HOST};
     }
 
+    error_page 404 =404 /404.html;
+
     location / {
         try_files $uri $uri/ =404;
     }
