@@ -94,6 +94,7 @@ deploy:
     echo "==> S3 に同期中 (バケット: ${S3_BUCKET})..."
     aws s3 sync "$REPO_ROOT/dist/" "s3://${S3_BUCKET}/" \
         --delete \
+        --exclude "images/*" \
         --region "${AWS_REGION}"
 
     echo "==> CloudFront キャッシュを無効化中..."
