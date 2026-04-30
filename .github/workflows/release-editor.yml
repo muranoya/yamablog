@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'editor/**'
+  workflow_dispatch:
 
 jobs:
   build:
