@@ -6,7 +6,7 @@ import {
   updateArticleSummaryLocal,
   type DbArticleSummary,
 } from "../store/manifest";
-import { saveArticleMetadata } from "../store/article";
+import { saveArticle } from "../store/article";
 import ArticleEditPage from "./ArticleEditPage";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
@@ -51,7 +51,7 @@ export default function ArticleListPage() {
     e.stopPropagation();
     const newStatus = article.status === "published" ? "draft" : "published";
     updateArticleSummaryLocal(article.id, { status: newStatus });
-    await saveArticleMetadata(article.id);
+    await saveArticle(article.id);
   }
 
   const TABS: { value: Filter; label: string }[] = [

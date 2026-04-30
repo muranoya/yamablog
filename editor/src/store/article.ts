@@ -38,7 +38,7 @@ function toUpsertInput(block: ArticleBlock) {
   };
 }
 
-async function saveArticle(articleId: number): Promise<void> {
+export async function saveArticle(articleId: number): Promise<void> {
   const article = getManifest()?.articles.find((a) => a.id === articleId);
   if (!article) return;
   const blocks = blocksStore[articleId] ?? [];
@@ -57,41 +57,20 @@ async function saveArticle(articleId: number): Promise<void> {
   });
 }
 
-export async function saveArticleMetadata(articleId: number): Promise<void> {
-  await saveArticle(articleId);
-}
-
-let saveTimer: number | null = null;
-function debouncedSave(articleId: number) {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveArticle(articleId).catch(console.error);
-    saveTimer = null;
-  }, 300);
-}
-
 export function updateBlock(
   articleId: number,
   index: number,
-  update: Partial<ArticleBlock>,
-  immediate = false
+  update: Partial<ArticleBlock>
 ): void {
-  const key = articleId.toString();
-  setBlocksStore(key, index, update as any);
-  if (immediate) saveArticle(articleId).catch(console.error);
-  else debouncedSave(articleId);
+  setBlocksStore(articleId.toString(), index, update as any);
 }
 
 export function addBlock(articleId: number, block: ArticleBlock): void {
-  const key = articleId.toString();
-  setBlocksStore(key, (prev) => [...(prev ?? []), block]);
-  saveArticle(articleId).catch(console.error);
+  setBlocksStore(articleId.toString(), (prev) => [...(prev ?? []), block]);
 }
 
 export function removeBlock(articleId: number, index: number): void {
-  const key = articleId.toString();
-  setBlocksStore(key, (prev) => prev.filter((_, i) => i !== index));
-  saveArticle(articleId).catch(console.error);
+  setBlocksStore(articleId.toString(), (prev) => prev.filter((_, i) => i !== index));
 }
 
 export function moveBlock(articleId: number, from: number, to: number): void {
@@ -101,5 +80,4 @@ export function moveBlock(articleId: number, from: number, to: number): void {
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
   setBlocksStore(articleId.toString(), next);
-  saveArticle(articleId).catch(console.error);
 }

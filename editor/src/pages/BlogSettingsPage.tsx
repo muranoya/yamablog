@@ -1,18 +1,19 @@
 import { createSignal, Show } from "solid-js";
-import { getManifest, updateBlogName, updateBlogTopImage } from "../store/manifest";
+import { getManifest, updateBlogName, updateBlogTopImage, saveBlogConfig } from "../store/manifest";
 import { getImageByUuid } from "../store/files";
 import { getPublicImageUrl } from "../lib/s3";
 import { Card, CardHeader } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
 import { PageHeader } from "../components/ui/PageHeader";
+import { Button } from "../components/ui/Button";
 import { ImageIcon, XIcon } from "../components/icons";
 import FilePicker from "../components/FilePicker";
 
 export default function BlogSettingsPage() {
   const [showFilePicker, setShowFilePicker] = createSignal(false);
 
-  const blogName = () => getManifest()?.blog.name ?? "";
-  const topImageUuid = () => getManifest()?.blog.top_image_uuid ?? null;
+  const blogName = () => getManifest()?.blog?.name ?? "";
+  const topImageUuid = () => getManifest()?.blog?.top_image_uuid ?? null;
   const topImageUrl = () => {
     const uuid = topImageUuid();
     if (!uuid) return null;
@@ -51,6 +52,11 @@ export default function BlogSettingsPage() {
               }}
               placeholder="山行記録"
             />
+            <div class="flex justify-end">
+              <Button variant="primary" onClick={() => saveBlogConfig().catch(console.error)}>
+                保存
+              </Button>
+            </div>
 
             {/* トップページ画像 */}
             <div>

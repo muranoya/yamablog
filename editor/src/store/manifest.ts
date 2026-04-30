@@ -94,18 +94,15 @@ export function setAllData(data: {
 
 // ── Blog ──────────────────────────────────────────────────────────────────
 
-let blogNameTimer: number | null = null;
-
 export function updateBlogName(name: string) {
   setStore("blog", "name", name);
-  if (blogNameTimer) clearTimeout(blogNameTimer);
-  blogNameTimer = setTimeout(() => {
-    if (!store.blog) return;
-    invoke("db_upsert_blog_config", {
-      input: { name, top_image_id: store.blog.top_image_id },
-    }).catch(console.error);
-    blogNameTimer = null;
-  }, 300);
+}
+
+export async function saveBlogConfig(): Promise<void> {
+  if (!store.blog) return;
+  await invoke("db_upsert_blog_config", {
+    input: { name: store.blog.name, top_image_id: store.blog.top_image_id },
+  });
 }
 
 export async function updateBlogTopImage(

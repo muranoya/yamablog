@@ -5,11 +5,11 @@ import {
   getArticleBlocks,
   isArticleLoaded,
   setArticleBlocks,
+  saveArticle,
   updateBlock,
   addBlock,
   removeBlock,
   moveBlock,
-  saveArticleMetadata,
   type ArticleBlock,
 } from "../store/article";
 import { getManifest, updateArticleSummaryLocal } from "../store/manifest";
@@ -51,8 +51,6 @@ export default function ArticleEditPage(props: Props) {
   const [slugError, setSlugError] = createSignal<string | null>(null);
   const [draggingIndex, setDraggingIndex] = createSignal<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
-
-  let titleTimer: number | null = null;
 
   createEffect(async () => {
     if (isArticleLoaded(props.articleId)) { setLoaded(true); return; }
@@ -101,20 +99,16 @@ export default function ArticleEditPage(props: Props) {
         thumbnail_image_id: img?.id ?? null,
         thumbnail_image_uuid: value,
       });
-      saveArticleMetadata(props.articleId).catch(console.error);
     } else if (target === "gpx_meta") {
       updateArticleSummaryLocal(props.articleId, { gpx_filename: value });
-      saveArticleMetadata(props.articleId).catch(console.error);
     } else if (filePickerKind() === "gpx") {
-      updateBlock(props.articleId, target.blockIndex, { gpx_filename: value }, true);
+      updateBlock(props.articleId, target.blockIndex, { gpx_filename: value });
     } else {
       const img = getImageByUuid(value);
-      updateBlock(
-        props.articleId,
-        target.blockIndex,
-        { image_id: img?.id ?? null, image_uuid: value },
-        true
-      );
+      updateBlock(props.articleId, target.blockIndex, {
+        image_id: img?.id ?? null,
+        image_uuid: value,
+      });
     }
     setShowFilePicker(false);
   }
@@ -125,21 +119,10 @@ export default function ArticleEditPage(props: Props) {
       ? current.filter((id) => id !== categoryId)
       : [...current, categoryId];
     updateArticleSummaryLocal(props.articleId, { category_ids: updated });
-    saveArticleMetadata(props.articleId).catch(console.error);
-  }
-
-  function handleTitleInput(title: string) {
-    updateArticleSummaryLocal(props.articleId, { title });
-    if (titleTimer) clearTimeout(titleTimer);
-    titleTimer = setTimeout(() => {
-      saveArticleMetadata(props.articleId).catch(console.error);
-      titleTimer = null;
-    }, 300);
   }
 
   function handleStatusChange(status: "published" | "draft") {
     updateArticleSummaryLocal(props.articleId, { status });
-    saveArticleMetadata(props.articleId).catch(console.error);
   }
 
   function commitSlugEdit() {
@@ -156,7 +139,6 @@ export default function ArticleEditPage(props: Props) {
       return;
     }
     updateArticleSummaryLocal(props.articleId, { slug: newSlug });
-    saveArticleMetadata(props.articleId).catch(console.error);
     setEditingSlug(false);
     setSlugError(null);
   }
@@ -190,10 +172,13 @@ export default function ArticleEditPage(props: Props) {
     <div class="flex h-full min-h-screen">
       {/* 左: メタデータパネル */}
       <div class="w-72 shrink-0 border-r border-zinc-200 bg-white flex flex-col overflow-y-auto">
-        <div class="p-4 border-b border-zinc-100">
+        <div class="p-4 border-b border-zinc-100 flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={props.onBack}>
             <ChevronLeftIcon />
             記事一覧
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => saveArticle(props.articleId).catch(console.error)}>
+            保存
           </Button>
         </div>
 
@@ -239,7 +224,7 @@ export default function ArticleEditPage(props: Props) {
                 type="text"
                 class="w-full text-base font-bold text-zinc-900 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500 rounded-lg px-2 py-1 -mx-2"
                 value={meta()?.title ?? ""}
-                onInput={(e) => handleTitleInput(e.currentTarget.value)}
+                onInput={(e) => updateArticleSummaryLocal(props.articleId, { title: e.currentTarget.value })}
                 placeholder="記事タイトル"
               />
             </div>
@@ -357,7 +342,6 @@ export default function ArticleEditPage(props: Props) {
                               thumbnail_image_id: null,
                               thumbnail_image_uuid: null,
                             });
-                            saveArticleMetadata(props.articleId).catch(console.error);
                           }}
                         >
                           <XIcon class="text-red-400" />
@@ -403,7 +387,6 @@ export default function ArticleEditPage(props: Props) {
                       size="sm"
                       onClick={() => {
                         updateArticleSummaryLocal(props.articleId, { gpx_filename: null });
-                        saveArticleMetadata(props.articleId).catch(console.error);
                       }}
                     >
                       <XIcon class="text-red-400" />
