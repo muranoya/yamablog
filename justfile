@@ -19,7 +19,8 @@ watch:
         --db "$REPO_ROOT/data/blog.sqlite3" \
         --gpx-dir "$REPO_ROOT/data/gpx" \
         --output-dir "$REPO_ROOT/preview" \
-        --blog-dist "$REPO_ROOT/blog/dist"
+        --blog-dist "$REPO_ROOT/blog/dist" \
+        --base-url "${BLOG_BASE_URL}"
     CDN_URL="${CDN_URL%/}"
     CDN_HOST=$(echo "$CDN_URL" | sed 's|https\?://||g')
     NGINX_CONF=$(mktemp --suffix=.conf)
@@ -28,13 +29,13 @@ watch:
         < "$REPO_ROOT/nginx/cdn.conf.template" \
         > "$NGINX_CONF"
     echo "==> /images/ を $CDN_URL へプロキシ"
-    CONTAINER_ID=$(docker run -d --rm -p 8080:80 \
+    CONTAINER_ID=$(docker run -d --rm -p 5000:80 \
         -v "$REPO_ROOT/preview":/usr/share/nginx/html \
         -v "$NGINX_CONF":/etc/nginx/conf.d/default.conf:ro \
         nginx:alpine)
     trap 'echo ""; echo "==> nginx を停止中..."; docker stop "$CONTAINER_ID" > /dev/null; rm -f "$NGINX_CONF"; exit 0' INT TERM
 
-    echo "==> Preview: http://localhost:8080"
+    echo "==> Preview: http://localhost:5000"
     echo "==> 監視中... (Ctrl+C で停止)"
     cargo watch \
         -C "$REPO_ROOT/cli" \
@@ -53,7 +54,8 @@ watch:
             --db $REPO_ROOT/data/blog.sqlite3 \
             --gpx-dir $REPO_ROOT/data/gpx \
             --output-dir $REPO_ROOT/preview \
-            --blog-dist $REPO_ROOT/blog/dist && \
+            --blog-dist $REPO_ROOT/blog/dist \
+            --base-url '$BLOG_BASE_URL' && \
             echo '==> ビルド完了 (ブラウザをリロードしてください)'"
 
 # ビルド生成物を一括削除
@@ -89,7 +91,8 @@ deploy:
         --db "$REPO_ROOT/data/blog.sqlite3" \
         --gpx-dir "$REPO_ROOT/data/gpx" \
         --output-dir "$REPO_ROOT/dist" \
-        --blog-dist "$REPO_ROOT/blog/dist"
+        --blog-dist "$REPO_ROOT/blog/dist" \
+        --base-url "${BLOG_BASE_URL}"
 
     echo "==> S3 に同期中 (バケット: ${S3_BUCKET})..."
     aws s3 sync "$REPO_ROOT/dist/" "s3://${S3_BUCKET}/" \

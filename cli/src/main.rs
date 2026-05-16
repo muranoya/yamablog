@@ -27,6 +27,9 @@ enum Commands {
 
         #[arg(long)]
         blog_dist: Option<PathBuf>,
+
+        #[arg(long)]
+        base_url: Option<String>,
     },
 }
 
@@ -38,9 +41,10 @@ fn main() -> Result<()> {
             gpx_dir,
             output_dir,
             blog_dist,
+            base_url,
         } => {
             let blog_dist = blog_dist.unwrap_or_else(|| PathBuf::from("blog/dist"));
-            build::run(&db, &gpx_dir, &output_dir, &blog_dist)?;
+            build::run(&db, &gpx_dir, &output_dir, &blog_dist, base_url.as_deref())?;
         }
     }
     Ok(())

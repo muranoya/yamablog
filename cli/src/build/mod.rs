@@ -71,7 +71,7 @@ fn fmt_duration(d: std::time::Duration) -> String {
     }
 }
 
-pub fn run(db_path: &Path, gpx_dir: &Path, output_dir: &Path, blog_dist: &Path) -> Result<()> {
+pub fn run(db_path: &Path, gpx_dir: &Path, output_dir: &Path, blog_dist: &Path, base_url: Option<&str>) -> Result<()> {
     use std::time::Instant;
 
     let total_start = Instant::now();
@@ -279,6 +279,79 @@ pub fn run(db_path: &Path, gpx_dir: &Path, output_dir: &Path, blog_dist: &Path) 
     write_file(output_dir, "404.html", &html_str)?;
     println!("  Generated: 404.html [{}]", fmt_duration(t.elapsed()));
 
+    // --- robots.txt & sitemap.xml ---
+    let t = Instant::now();
+    if let Some(base) = base_url {
+        let base = base.trim_end_matches('/');
+
+        // --- sitemap.xml ---
+        let mut xml = String::new();
+        xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        xml.push_str("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+
+        // トップページ
+        xml.push_str(&format!("  <url>\n    <loc>{}/</loc>\n  </url>\n", base));
+
+        // 記事一覧 2ページ目以降
+        for page in &pages {
+            if page.page_number > 1 {
+                xml.push_str(&format!(
+                    "  <url>\n    <loc>{}/{}/</loc>\n  </url>\n",
+                    base, page.page_number
+                ));
+            }
+        }
+
+        // 記事詳細（公開済み、created_at 降順）
+        for article in &published {
+            let lastmod = format_timestamp(article.created_at);
+            xml.push_str(&format!(
+                "  <url>\n    <loc>{}/articles/{}/</loc>\n    <lastmod>{}</lastmod>\n  </url>\n",
+                base,
+                article.id.as_str(),
+                lastmod
+            ));
+        }
+
+        // カテゴリページ（全ページ）
+        for cat in &sorted_categories {
+            let cat_id_str = cat.id.to_string();
+            let cat_arts: Vec<_> = published
+                .iter()
+                .filter(|a| a.category_ids.iter().any(|cid| cid.as_str() == cat_id_str))
+                .collect();
+            let cat_pages = pagination::paginate(&cat_arts, pagination::ARTICLES_PER_PAGE);
+            for page in &cat_pages {
+                let loc = if page.page_number == 1 {
+                    format!("{}/categories/{}/", base, cat.id.as_str())
+                } else {
+                    format!("{}/categories/{}/{}/", base, cat.id.as_str(), page.page_number)
+                };
+                xml.push_str(&format!("  <url>\n    <loc>{}</loc>\n  </url>\n", loc));
+            }
+        }
+
+        // 月別アーカイブ
+        for m in &monthly_counts {
+            xml.push_str(&format!(
+                "  <url>\n    <loc>{}/archives/{}/</loc>\n  </url>\n",
+                base, m.month
+            ));
+        }
+
+        xml.push_str("</urlset>\n");
+        write_file(output_dir, "sitemap.xml", &xml)?;
+        println!("  Generated: sitemap.xml [{}]", fmt_duration(t.elapsed()));
+
+        // robots.txt（Sitemap ディレクティブあり）
+        let robots = format!("User-agent: *\nAllow: /\nSitemap: {}/sitemap.xml\n", base);
+        write_file(output_dir, "robots.txt", &robots)?;
+    } else {
+        eprintln!("  Warning: --base-url not specified, skipping sitemap.xml");
+        write_file(output_dir, "robots.txt", "User-agent: *\nAllow: /\n")?;
+    }
+    println!("  Generated: robots.txt [{}]", fmt_duration(t.elapsed()));
+
     let t = Instant::now();
     write_file(output_dir, &bundle.css_path, &bundle.css_content)?;
     println!("  Generated: {} [{}]", bundle.css_path, fmt_duration(t.elapsed()));
@@ -331,7 +404,7 @@ mod tests {
             return;
         }
         let output_dir = std::env::temp_dir().join("yamablog-test-output");
-        run(&db_path, &gpx_dir, &output_dir, &blog_dist).expect("build should succeed");
+        run(&db_path, &gpx_dir, &output_dir, &blog_dist, None).expect("build should succeed");
 
         assert!(
             output_dir.join("index.html").exists(),
